@@ -1,86 +1,90 @@
-# Step 10: Testing, QA & Release-Vorbereitung
+# Step 9: Erweiterte Objekttypen & Convenience-APIs
 
-**Ziel:** Extension ist getestet, dokumentiert und für PECL/Release paketierbar. Memory-Safety ist nachgewiesen.
+**Ziel:** Unterstützung für komplexe Objekte aus der Anforderung (Schedule, TrendLog, EventEnrollment, NotificationClass). Da diese komplexe Properties besitzen, werden spezialisierte PHP-Hilfsklassen eingeführt, die das Lesen/Schreiben dieser Strukturen vereinfachen.
 
 ## Aktionen
 
-1.  **PHPT-Tests (`tests/`):**
-    Erstelle für jeden Step mindestens einen `.phpt`-Test:
-    - `001_client_construct.phpt`
-    - `002_whois_discovery.phpt`  (benötigt BACnet-Simulator oder mock?)
-    - `003_read_property.phpt`
-    - `004_write_property.phpt`
-    - `005_complex_types.phpt`
-    - `006_server_poll.phpt`
-    - `007_exceptions.phpt`
-    
-    > Für Tests ohne echte Hardware: Nutze `SKIPIF` mit `extension_loaded('bacnet')`. Netzwerk-Tests werden als `--POST--` oder `--STDIN--` mit einem lokalen BACnet-Simulator (z. B. `bacnet-stack` Beispiel-Device) durchgeführt. Beschreibe in `tests/README.md`, wie der Simulator gestartet wird.
+1.  **Enum-Erweiterung (falls nicht bereits in Step 4 geschehen):**
+    Stelle sicher, dass `ObjectType` vollständig ist:
+    - `NOTIFICATION_CLASS = 15`
+    - `SCHEDULE = 17`
+    - `TREND_LOG = 20`
+    - `EVENT_ENROLLMENT = 9`
 
-2.  **Memory-Leak-Tests:**
-    ```bash
-    ZEND_DONT_UNLOAD_MODULES=1 valgrind --leak-check=full --show-leak-kinds=definite,indirect \
-      php run-tests.php tests/
-    ```
-    - Fixe alle `definite lost`-Leaks.
-    - Typische Fallstricke: Nicht freigegebene `zend_string`, vergessene `zval_ptr_dtor`, `efree` vs `pefree` bei persistenten Client-Strukturen.
-
-3.  **GitHub Actions CI (`.github/workflows/ci.yml`):**
-    ```yaml
-    name: CI
-    on: [push, pull_request]
-    jobs:
-      build:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@v4
-            with:
-              submodules: recursive
-          - name: Install dependencies
-            run: sudo apt-get update && sudo apt-get install -y build-essential cmake php-dev valgrind
-          - name: Build bacnet-stack
-            run: ./scripts/build-deps.sh
-          - name: phpize & configure
-            run: phpize && ./configure --with-bacnet
-          - name: Build
-            run: make
-          - name: Run tests
-            run: make test TESTS=tests/ REPORT_EXIT_STATUS=1
-          - name: Memory check (optional)
-            run: |
-              # Starte BACnet-Simulator im Hintergrund (wenn möglich)
-              # Valgrind-Test ...
-    ```
-
-4.  **IDE-Stubs (`stubs/bacnet.stub.php`):**
-    Erstelle eine vollständige PHP-Stub-Datei mit allen Klassen, Enums, Methoden und Typ-Hinweisen für PHPStan/IDE:
+2.  **Klasse `Bacnet\ScheduleEntry`:**
     ```php
-    <?php
-    namespace Bacnet {
-        enum ObjectType: int { /* ... */ }
-        enum Property: int { /* ... */ }
-        class Client { /* ... */ }
-        class Device { /* ... */ }
-        // ... etc
+    namespace Bacnet;
+    class ScheduleEntry {
+        public function __construct(Time $startTime, mixed $value);
+        public function getStartTime(): Time;
+        public function getValue(): mixed;
     }
     ```
+    - Intern: Speichert `BACNET_DAILY_SCHEDULE`-ähnliche Struktur.
+    - Mapping zu BACnet: Jeder Entry ist ein `TimeValue` (BACnetSequenceOf TimeValue).
 
-5.  **Dokumentation:**
-    - `README.md`: Installationsanleitung (inkl. Submodule), minimales Code-Beispiel.
-    - `API.md`: Alle Klassen und Methoden mit Beschreibung.
-    - `CHANGELOG.md`: Version 0.1.0 – Initial Release.
+3.  **Klasse `Bacnet\WeeklySchedule`:**
+    ```php
+    namespace Bacnet;
+    class WeeklySchedule {
+        /** @param ScheduleEntry[] $monday ... $sunday */
+        public function __construct(array $monday = [], ..., array $sunday = []);
+        public function getDay(int $weekday /* 1=Mon..7=Sun */): array;
+    }
+    ```
+    - Convenience auf `Schedule.weekly_schedule` (Property 123 / `WEEKLY_SCHEDULE`).
+    - `Device`-/`ObjectRef`-Methode:
+      ```php
+      public function readWeeklySchedule(): WeeklySchedule;
+      public function writeWeeklySchedule(WeeklySchedule $schedule): void;
+      ```
+    - Implementierung: Liest `WEEKLY_SCHEDULE` (Array-of-Sequence). Jeder Tag ist eine Sequenz von `ScheduleEntry`. Wir mappen dies auf `WeeklySchedule`.
 
-6.  **PECL-Vorbereitung:**
-    - `package.xml` mit `<name>bacnet</name>`, Version, Lead, Dependencies.
-    - `LICENSE` (BSD-3 oder MIT, abgestimmt mit `bacnet-stack`-Lizenz – diese ist BSD-like).
+4.  **Klasse `Bacnet\TrendLogRecord`:**
+    ```php
+    namespace Bacnet;
+    class TrendLogRecord {
+        public function __construct(
+            public readonly DateTime $timestamp, // oder Bacnet\Date + Bacnet\Time
+            public readonly mixed $value,
+            public readonly int $statusFlags
+        );
+    }
+    ```
+    - Convenience: `TrendLog::readLog(?int $start = null, ?int $end = null): array`.
+    - Intern: Nutzt `ReadRange`-Service (optional, falls zu komplex: erstmal nur `readProperty(Property::LOG_BUFFER)` als Roh-Array).
+    - Für MVP reicht: `ObjectRef::readTrendLog(): TrendLogRecord[]`, das intern `LOG_BUFFER` als Array decodiert.
 
-7.  **Finaler Build-Check:**
-    - Kompiliert sauber mit `-Wall -Wextra` (minimiere Warnings).
-    - Funktioniert unter PHP 8.4 und 8.5 (API-Check: `PHP_VERSION_ID`).
+5.  **EventEnrollment & NotificationClass (Basic):**
+    - Für diese reichen die generischen `readProperty`/`writeProperty` mit korrekten Properties.
+    - Ergänze wichtige `Property`-Konstanten:
+      - `EVENT_TYPE = 37`
+      - `NOTIFY_TYPE = 72`
+      - `EVENT_PARAMETERS = 83`
+      - `OBJECT_PROPERTY_REFERENCE = 78` (für EventEnrollment)
+      - `RECIPIENT_LIST = 102` (für NotificationClass)
+    - Keine speziellen Convenience-Klassen für MVP nötig, aber dokumentiert.
+
+6.  **Special: Binary/MS Value Convenience:**
+    - `BinaryValue` Present-Value schreiben:
+      ```php
+      $bv->writeActive();   // == writeProperty(PRESENT_VALUE, Value::enumerated(1))
+      $bv->writeInactive(); // == writeProperty(PRESENT_VALUE, Value::enumerated(0))
+      ```
+    - Optional, falls Zeit: `ObjectRef::writePresentValue(mixed $value)` Shortcut.
+
+7.  **Zusätzliche Properties im Enum:**
+    Ergänze weitere allgemeine Properties, die für die neuen Objekte relevant sind, z. B.:
+    - `RELIABILITY = 103`
+    - `NOTIFICATION_CLASS` (bereits vorhanden)
+    - `ACK_REQUIRED = 1`
+    - `STATE_TEXT = 110`
+    - `NUMBER_OF_STATES = 74`
 
 ## Akzeptanzkriterien
 
-- [ ] `make test` läuft erfolgreich durch (ggf. mit lokalem Simulator).
-- [ ] Valgrind-Report zeigt 0x definite leaks bei normaler Nutzung (Client create/destroy, 1000 Requests).
-- [ ] `README.md` enthält Copy-Paste-Beispiel für Who-Is + ReadProperty.
-- [ ] `stubs/bacnet.stub.php` ist vollständig und fehlerfrei.
-- [ ] Extension lädt in PHP 8.4 und 8.5 ohne `undefined symbol`-Fehler.
+- [ ] Ein `Schedule`-Objekt erlaubt `readWeeklySchedule()` und liefert `WeeklySchedule`.
+- [ ] `writeWeeklySchedule()` encodiert korrekt in BACnet `SequenceOf DailySchedule`.
+- [ ] `TrendLog` kann gelesen werden (zumindest Roh-Property, idealerweise als `TrendLogRecord[]`).
+- [ ] `EventEnrollment` und `NotificationClass` sind als `ObjectType` verwendbar und generisches Read/Write funktioniert.
+- [ ] `BitString` aus Step 5 wird korrekt für `statusFlags` in TrendLogRecords verwendet.
