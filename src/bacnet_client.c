@@ -50,6 +50,13 @@ php_bacnet_client *php_bacnet_client_create(
     client->port  = port ? port : 47808;
 
     bip_set_port(client->port);
+    /*
+     * Always broadcast to the standard BACnet/IP port (47808).
+     * bip_get_broadcast_port() falls back to BIP_Port when BIP_Broadcast_Port
+     * is 0, so if the client is on a non-standard port (e.g. 47809), broadcasts
+     * would go to that port instead of 47808 and no standard server would hear them.
+     */
+    bip_set_broadcast_port(0xBAC0); /* 47808 — standard BACnet/IP port */
 
     if (!bip_init(real_iface)) {
         if (err_msg) {
@@ -94,17 +101,31 @@ int php_bacnet_broadcast_and_collect(
 {
     if (!client || !client->initialized) return 0;
 
-    /* Build broadcast BACNET_ADDRESS */
+    /* Build broadcast BACNET_ADDRESS (mac_len=0 → BIP subnet broadcast) */
     BACNET_ADDRESS dest;
     memset(&dest, 0, sizeof(dest));
     dest.net     = BACNET_BROADCAST_NETWORK;
-    dest.mac_len = 0; /* BIP broadcast: mac_len=0 */
+    dest.mac_len = 0;
 
     /* NPDU data for unconfirmed broadcast */
     BACNET_NPDU_DATA npdu_data;
     npdu_encode_npdu_data(&npdu_data, false, MESSAGE_PRIORITY_NORMAL);
 
-    bip_send_pdu(&dest, &npdu_data, request_apdu, request_apdu_len);
+    /*
+     * bvlc_send_pdu ignores the npdu_data parameter — it expects the caller
+     * to pass a fully-formed NPDU+APDU buffer, not just the APDU.
+     * Encode NPDU first, then append the APDU (mirrors Send_WhoIs_To_Network).
+     */
+    uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
+    BACNET_ADDRESS my_address;
+    bip_get_my_address(&my_address);
+    int npdu_hdrlen = npdu_encode_pdu(pdu_buf, &dest, &my_address, &npdu_data);
+    if (npdu_hdrlen < 0 ||
+        (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf)) return 0;
+    memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);
+    unsigned total_len = (unsigned)(npdu_hdrlen + request_apdu_len);
+
+    bip_send_pdu(&dest, &npdu_data, pdu_buf, total_len);
 
     /* Collect I-Am responses until timeout */
     uint64_t deadline = ms_now() + timeout_ms;
@@ -188,7 +209,17 @@ int php_bacnet_send_and_wait(
     BACNET_NPDU_DATA npdu_data;
     npdu_encode_npdu_data(&npdu_data, true, MESSAGE_PRIORITY_NORMAL);
 
-    bip_send_pdu(dest, &npdu_data, request_apdu, request_apdu_len);
+    /* Encode NPDU before APDU — bvlc_send_pdu ignores npdu_data */
+    uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
+    BACNET_ADDRESS my_address;
+    bip_get_my_address(&my_address);
+    int npdu_hdrlen = npdu_encode_pdu(pdu_buf, dest, &my_address, &npdu_data);
+    if (npdu_hdrlen < 0 ||
+        (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf)) return -1;
+    memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);
+    unsigned total_len = (unsigned)(npdu_hdrlen + request_apdu_len);
+
+    bip_send_pdu(dest, &npdu_data, pdu_buf, total_len);
 
     uint64_t deadline = ms_now() + timeout_ms;
 

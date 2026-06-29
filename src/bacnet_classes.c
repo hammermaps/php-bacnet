@@ -1353,6 +1353,26 @@ PHP_METHOD(Bacnet_ObjectRef, writePresentValue)
                 "writePresentValue: unsupported value type", 0);
             RETURN_THROWS();
         }
+        /*
+         * PRESENT_VALUE type depends on object type:
+         *   Binary*         → ENUMERATED  (0=inactive, 1=active)
+         *   Analog*         → REAL        (cast int to float)
+         *   Multi-state*    → UNSIGNED_INT
+         *   Others          → keep auto-detected tag
+         */
+        uint32_t ot = ref->object_type;
+        if (appdata.tag == BACNET_APPLICATION_TAG_UNSIGNED_INT ||
+            appdata.tag == BACNET_APPLICATION_TAG_SIGNED_INT) {
+            if (ot == OBJECT_BINARY_INPUT || ot == OBJECT_BINARY_OUTPUT ||
+                ot == OBJECT_BINARY_VALUE) {
+                appdata.tag = BACNET_APPLICATION_TAG_ENUMERATED;
+                appdata.type.Enumerated = (uint32_t)appdata.type.Unsigned_Int;
+            } else if (ot == OBJECT_ANALOG_INPUT || ot == OBJECT_ANALOG_OUTPUT ||
+                       ot == OBJECT_ANALOG_VALUE) {
+                appdata.tag = BACNET_APPLICATION_TAG_REAL;
+                appdata.type.Real = (float)appdata.type.Unsigned_Int;
+            }
+        }
         object_init_ex(&encoded, bacnet_ce_value);
         php_bacnet_value_obj *vo = Z_BACNET_VALUE_P(&encoded);
         vo->appdata = appdata;
