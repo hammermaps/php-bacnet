@@ -109,6 +109,18 @@ Follow the numbered doc files in order (all under `docs/`). Each has explicit ac
 9. `docs/09_advanced_object_types_and_convenience_apis.md` — Schedule, TrendLog helpers
 10. `docs/10_testing_qa_and_release_prep.md` — PHPT suite, Valgrind, CI, `package.xml`
 
+## bacnet-stack Submodule
+
+Pinned commit: `5afc5c9a54b2579f61ec5959c58a8ce595bb55e8` (bacnet-stack-1.5.0-109-g5afc5c9a5)
+
+Do not update without a changelog entry and deliberate `git submodule update`.
+
+The library is built as a static `-fPIC` archive via `scripts/build-deps.sh`
+(cmake, `BACDL_BIP=ON`, `BUILD_SHARED_LIBS=OFF`). Output: `deps/bacnet-stack/build/libbacnet-stack.a`
+
+**Important:** `bip_init()` requires an interface *name* (e.g. `"eth0"`), not an IP address.
+Pass `NULL` to auto-detect. Passing `"0.0.0.0"` will fail.
+
 ## Requirements
 
 - PHP 8.4 or 8.5 NTS (with dev headers: `php-dev`)
