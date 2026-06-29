@@ -8,8 +8,6 @@ extern zend_module_entry bacnet_module_entry;
 #define PHP_BACNET_EXTNAME "bacnet"
 
 #include "php.h"
-#include "php_ini.h"
-#include "ext/standard/info.h"
 #include "zend_exceptions.h"
 
 /* Class entry pointers — set in MINIT via php_bacnet_register_classes() */
@@ -42,7 +40,7 @@ typedef struct _zend_bacnet_globals {
      * socket. Only one Bacnet\Client may exist per PHP process at a time.
      * Reset to 0 in RINIT so FPM workers can create a new Client per request.
      */
-    zend_bool client_initialized;
+    bool client_initialized;
 } zend_bacnet_globals;
 
 ZEND_EXTERN_MODULE_GLOBALS(bacnet)

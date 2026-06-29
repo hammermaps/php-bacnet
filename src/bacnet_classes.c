@@ -517,10 +517,11 @@ PHP_METHOD(Bacnet_Client, __construct)
         zend_throw_exception_ex(bacnet_ce_exception, 0,
             "Failed to initialize BACnet client: %s",
             err_msg ? err_msg : "unknown error");
-        free(err_msg);
+        efree(err_msg);
         RETURN_THROWS();
     }
-    free(err_msg);
+    /* err_msg is NULL on success — efree(NULL) is a no-op */
+    efree(err_msg);
     BACNET_G(client_initialized) = 1;
 }
 
@@ -1753,14 +1754,15 @@ PHP_METHOD(Bacnet_Server, __construct)
         char buf[256];
         snprintf(buf, sizeof(buf), "BACnet Server init failed: %s",
             err_msg ? err_msg : "unknown error");
-        free(err_msg);
+        efree(err_msg);
         zend_hash_destroy(srv->local_objects);
         efree(srv->local_objects);
         srv->local_objects = NULL;
         zend_throw_exception(bacnet_ce_exception, buf, 0);
         RETURN_THROWS();
     }
-    free(err_msg);
+    /* err_msg is NULL on success — efree(NULL) is a no-op */
+    efree(err_msg);
 
     srv->device_id = (uint32_t)device_id;
     srv->auto_iam  = true;

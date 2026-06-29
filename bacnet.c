@@ -3,8 +3,8 @@
 #endif
 
 #include "php.h"
-#include "php_ini.h"
-#include "ext/standard/info.h"
+#include "php_ini.h"          /* REGISTER_INI_ENTRIES, UNREGISTER_INI_ENTRIES */
+#include "ext/standard/info.h" /* php_info_print_table_* */
 #include "php_bacnet.h"
 #include "src/bacnet_classes.h"
 

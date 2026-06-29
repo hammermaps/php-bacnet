@@ -1,5 +1,11 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+/* php.h first — Zend Memory Manager (pemalloc/pefree/pestrdup/estrdup/efree) */
+#include "php.h"
+
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <arpa/inet.h>
@@ -31,11 +37,9 @@ static uint64_t ms_now(void)
 php_bacnet_client *php_bacnet_client_create(
     const char *iface, uint16_t port, char **err_msg)
 {
-    php_bacnet_client *client = calloc(1, sizeof(php_bacnet_client));
-    if (!client) {
-        if (err_msg) *err_msg = strdup("out of memory");
-        return NULL;
-    }
+    /* Persistent allocation: client outlives a single PHP call frame */
+    php_bacnet_client *client = pemalloc(sizeof(php_bacnet_client), 1);
+    memset(client, 0, sizeof(*client));
 
     /*
      * bip_init() expects an interface *name* (e.g. "eth0"), not an IP address.
@@ -46,7 +50,8 @@ php_bacnet_client *php_bacnet_client_create(
     if (iface && *iface && strcmp(iface, "0.0.0.0") != 0) {
         real_iface = iface;
     }
-    client->iface = real_iface ? strdup(real_iface) : strdup("(auto)");
+    /* pestrdup: persistent copy of the interface name — freed in destroy() */
+    client->iface = real_iface ? pestrdup(real_iface, 1) : pestrdup("(auto)", 1);
     client->port  = port ? port : 47808;
 
     bip_set_port(client->port);
@@ -64,10 +69,11 @@ php_bacnet_client *php_bacnet_client_create(
             snprintf(buf, sizeof(buf),
                 "bip_init failed on interface '%s' port %u",
                 client->iface, (unsigned)client->port);
-            *err_msg = strdup(buf);
+            /* estrdup: temporary error string — caller frees with efree() */
+            *err_msg = estrdup(buf);
         }
-        free(client->iface);
-        free(client);
+        pefree(client->iface, 1);
+        pefree(client, 1);
         return NULL;
     }
 
@@ -84,8 +90,8 @@ void php_bacnet_client_destroy(php_bacnet_client *client)
         bip_cleanup();
         client->initialized = false;
     }
-    free(client->iface);
-    free(client);
+    pefree(client->iface, 1);
+    pefree(client, 1);
 }
 
 /*
