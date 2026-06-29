@@ -1,0 +1,38 @@
+# PHP extension build artifacts
+/.libs/
+/autom4te.cache/
+/build/
+/modules/
+/src/.libs/
+Makefile
+Makefile.fragments
+Makefile.objects
+*.la
+*.lo
+*.dep
+*.o
+*.so
+config.h
+config.h.in
+config.log
+config.nice
+config.status
+configure
+configure.ac
+configure~
+config.guess
+config.sub
+libtool
+run-tests.php
+
+# bacnet-stack build output
+deps/bacnet-stack/build/
+
+# Compiled C test binaries
+tests/c_client_test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~

@@ -1,0 +1,41 @@
+#ifndef PHP_BACNET_H
+#define PHP_BACNET_H
+
+extern zend_module_entry bacnet_module_entry;
+#define phpext_bacnet_ptr &bacnet_module_entry
+
+#define PHP_BACNET_VERSION "0.1.0"
+#define PHP_BACNET_EXTNAME "bacnet"
+
+#include "php.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "zend_exceptions.h"
+
+/* Class entry pointers — set in MINIT via php_bacnet_register_classes() */
+extern zend_class_entry *bacnet_ce_client;
+extern zend_class_entry *bacnet_ce_device;
+extern zend_class_entry *bacnet_ce_object_ref;
+extern zend_class_entry *bacnet_ce_object_identifier;
+extern zend_class_entry *bacnet_ce_bit_string;
+extern zend_class_entry *bacnet_ce_date;
+extern zend_class_entry *bacnet_ce_time;
+extern zend_class_entry *bacnet_ce_value;
+extern zend_class_entry *bacnet_ce_object_type_enum;
+extern zend_class_entry *bacnet_ce_property_enum;
+extern zend_class_entry *bacnet_ce_exception;
+extern zend_class_entry *bacnet_ce_timeout_exception;
+extern zend_class_entry *bacnet_ce_device_exception;
+
+/* Extension globals (NTS only) */
+typedef struct _zend_bacnet_globals {
+    zend_long default_port;
+    zend_long default_timeout_ms;
+    char *default_interface;
+    uint8_t next_invoke_id;
+} zend_bacnet_globals;
+
+ZEND_EXTERN_MODULE_GLOBALS(bacnet)
+#define BACNET_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(bacnet, v)
+
+#endif /* PHP_BACNET_H */
