@@ -27,12 +27,18 @@ extern zend_class_entry *bacnet_ce_exception;
 extern zend_class_entry *bacnet_ce_timeout_exception;
 extern zend_class_entry *bacnet_ce_device_exception;
 
-/* Extension globals (NTS only) */
+/* Extension globals (NTS only — no ZTS) */
 typedef struct _zend_bacnet_globals {
     zend_long default_port;
     zend_long default_timeout_ms;
     char *default_interface;
     uint8_t next_invoke_id;
+    /*
+     * Singleton guard: bacnet-stack's bip_init() binds a process-global UDP
+     * socket. Only one Bacnet\Client may exist per PHP process at a time.
+     * Reset to 0 in RINIT so FPM workers can create a new Client per request.
+     */
+    zend_bool client_initialized;
 } zend_bacnet_globals;
 
 ZEND_EXTERN_MODULE_GLOBALS(bacnet)

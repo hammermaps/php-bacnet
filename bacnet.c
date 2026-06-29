@@ -26,6 +26,7 @@ static void php_bacnet_init_globals(zend_bacnet_globals *bacnet_globals)
     bacnet_globals->default_timeout_ms = 3000;
     bacnet_globals->default_interface  = NULL;
     bacnet_globals->next_invoke_id     = 1;
+    bacnet_globals->client_initialized = 0;
 }
 
 /* MINIT */
@@ -50,7 +51,8 @@ PHP_RINIT_FUNCTION(bacnet)
 #if defined(COMPILE_DL_BACNET) && defined(ZTS)
     ZEND_TSRMLS_CACHE_UPDATE();
 #endif
-    BACNET_G(next_invoke_id) = 1;
+    BACNET_G(next_invoke_id)     = 1;
+    BACNET_G(client_initialized) = 0;
     return SUCCESS;
 }
 
