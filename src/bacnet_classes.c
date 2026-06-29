@@ -5,11 +5,13 @@
 #include "php.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"
+#include "zend_enum.h"
 
 #ifndef BACDL_BIP
 #define BACDL_BIP
 #endif
 #include "bacnet/bacdef.h"
+#include "bacnet/bacenum.h"
 #include "bacnet/whois.h"
 
 #include "../php_bacnet.h"
@@ -37,6 +39,7 @@ zend_class_entry *bacnet_ce_device_exception  = NULL;
 
 static zend_object_handlers php_bacnet_client_handlers;
 static zend_object_handlers php_bacnet_device_handlers;
+static zend_object_handlers php_bacnet_oid_handlers;
 
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Bacnet\Client                                                         */
@@ -63,8 +66,6 @@ static void php_bacnet_client_free_object(zend_object *object)
     }
     zend_object_std_dtor(object);
 }
-
-/* ── Bacnet\Client::__construct(?string $interface, ?int $port, ?int $timeoutMs) */
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_bacnet_client_construct, 0, 0, 0)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, interface, IS_STRING, 1, "null")
@@ -98,7 +99,7 @@ PHP_METHOD(Bacnet_Client, __construct)
 
     const char *iface = (iface_str && ZSTR_LEN(iface_str) > 0)
                         ? ZSTR_VAL(iface_str) : NULL;
-    uint16_t p = port_null       ? (uint16_t)BACNET_G(default_port)       : (uint16_t)port;
+    uint16_t p = port_null ? (uint16_t)BACNET_G(default_port) : (uint16_t)port;
 
     char *err_msg = NULL;
     obj->client   = php_bacnet_client_create(iface, p, &err_msg);
@@ -113,8 +114,6 @@ PHP_METHOD(Bacnet_Client, __construct)
 
     BACNET_G(client_initialized) = 1;
 }
-
-/* ── Bacnet\Client::whoIs(?int $lowLimit, ?int $highLimit, ?int $timeoutMs): array */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_client_whois, 0, 0, IS_ARRAY, 0)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, lowLimit,  IS_LONG, 1, "null")
@@ -145,13 +144,12 @@ PHP_METHOD(Bacnet_Client, whoIs)
         RETURN_THROWS();
     }
 
-    int32_t lo = low_null  ? 0                  : (int32_t)low_limit;
-    int32_t hi = high_null ? BACNET_MAX_INSTANCE : (int32_t)high_limit;
+    int32_t lo   = low_null  ? 0                  : (int32_t)low_limit;
+    int32_t hi   = high_null ? BACNET_MAX_INSTANCE : (int32_t)high_limit;
     uint32_t tms = tms_null
         ? (uint32_t)BACNET_G(default_timeout_ms)
         : (uint32_t)timeout_ms;
 
-    /* Clamp range */
     if (lo < 0) lo = 0;
     if (hi > BACNET_MAX_INSTANCE) hi = BACNET_MAX_INSTANCE;
 
@@ -216,57 +214,41 @@ static void php_bacnet_device_free_object(zend_object *object)
     zend_object_std_dtor(object);
 }
 
-/* ── Bacnet\Device::getDeviceId(): int */
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_get_device_id, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
-
 PHP_METHOD(Bacnet_Device, getDeviceId)
 {
     ZEND_PARSE_PARAMETERS_NONE();
-    php_bacnet_device_obj *obj = Z_BACNET_DEVICE_P(ZEND_THIS);
-    RETURN_LONG((zend_long)obj->device_id);
+    RETURN_LONG((zend_long)Z_BACNET_DEVICE_P(ZEND_THIS)->device_id);
 }
-
-/* ── Bacnet\Device::getAddress(): string  (dotted-IP:port, for debugging) */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_get_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
-
 PHP_METHOD(Bacnet_Device, getAddress)
 {
     ZEND_PARSE_PARAMETERS_NONE();
     php_bacnet_device_obj *obj = Z_BACNET_DEVICE_P(ZEND_THIS);
-    char ipbuf[32];
-    uint16_t port;
+    char ipbuf[32]; uint16_t port;
     php_bacnet_address_to_ipport(&obj->address, ipbuf, sizeof(ipbuf), &port);
     char result[64];
     snprintf(result, sizeof(result), "%s:%u", ipbuf, (unsigned)port);
     RETURN_STRING(result);
 }
 
-/* ── Bacnet\Device::getMaxApdu(): int */
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_get_max_apdu, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
-
 PHP_METHOD(Bacnet_Device, getMaxApdu)
 {
     ZEND_PARSE_PARAMETERS_NONE();
-    php_bacnet_device_obj *obj = Z_BACNET_DEVICE_P(ZEND_THIS);
-    RETURN_LONG((zend_long)obj->max_apdu);
+    RETURN_LONG((zend_long)Z_BACNET_DEVICE_P(ZEND_THIS)->max_apdu);
 }
-
-/* ── Bacnet\Device::getVendorId(): int */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_get_vendor_id, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
-
 PHP_METHOD(Bacnet_Device, getVendorId)
 {
     ZEND_PARSE_PARAMETERS_NONE();
-    php_bacnet_device_obj *obj = Z_BACNET_DEVICE_P(ZEND_THIS);
-    RETURN_LONG((zend_long)obj->vendor_id);
+    RETURN_LONG((zend_long)Z_BACNET_DEVICE_P(ZEND_THIS)->vendor_id);
 }
 
 static const zend_function_entry bacnet_device_methods[] = {
@@ -278,6 +260,120 @@ static const zend_function_entry bacnet_device_methods[] = {
 };
 
 /* ────────────────────────────────────────────────────────────────────── */
+/*  Bacnet\ObjectIdentifier                                               */
+/* ────────────────────────────────────────────────────────────────────── */
+
+static zend_object *php_bacnet_oid_create_object(zend_class_entry *ce)
+{
+    php_bacnet_object_identifier_obj *obj =
+        (php_bacnet_object_identifier_obj *)
+            zend_object_alloc(sizeof(php_bacnet_object_identifier_obj), ce);
+    obj->object_type = MAX_BACNET_OBJECT_TYPE;
+    obj->instance    = 0;
+    ZVAL_UNDEF(&obj->type_zval);
+    zend_object_std_init(&obj->std, ce);
+    object_properties_init(&obj->std, ce);
+    obj->std.handlers = &php_bacnet_oid_handlers;
+    return &obj->std;
+}
+
+static void php_bacnet_oid_free_object(zend_object *object)
+{
+    php_bacnet_object_identifier_obj *obj = php_bacnet_oid_from_obj(object);
+    zval_ptr_dtor(&obj->type_zval);
+    zend_object_std_dtor(object);
+}
+
+/* __construct(ObjectType $type, int $instance) */
+ZEND_BEGIN_ARG_INFO_EX(arginfo_bacnet_oid_construct, 0, 0, 2)
+    ZEND_ARG_OBJ_INFO(0, type,     Bacnet\\ObjectType, 0)
+    ZEND_ARG_TYPE_INFO(0, instance, IS_LONG,           0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectIdentifier, __construct)
+{
+    zval *type_enum;
+    zend_long instance;
+
+    ZEND_PARSE_PARAMETERS_START(2, 2)
+        Z_PARAM_OBJECT_OF_CLASS(type_enum, bacnet_ce_object_type_enum)
+        Z_PARAM_LONG(instance)
+    ZEND_PARSE_PARAMETERS_END();
+
+    if (instance < 0 || instance > BACNET_MAX_INSTANCE) {
+        zend_throw_exception_ex(bacnet_ce_exception, 0,
+            "Invalid BACnet object instance %ld (must be 0..%u)",
+            (long)instance, BACNET_MAX_INSTANCE);
+        RETURN_THROWS();
+    }
+
+    php_bacnet_object_identifier_obj *obj = Z_BACNET_OID_P(ZEND_THIS);
+
+    /* Extract backing int value from enum case */
+    zval *backing = zend_enum_fetch_case_value(Z_OBJ_P(type_enum));
+    obj->object_type = (BACNET_OBJECT_TYPE)Z_LVAL_P(backing);
+    obj->instance    = (uint32_t)instance;
+    ZVAL_COPY(&obj->type_zval, type_enum);
+
+    /* Expose as PHP properties for userland read access */
+    zend_update_property(bacnet_ce_object_identifier, Z_OBJ_P(ZEND_THIS),
+        "type", sizeof("type") - 1, type_enum);
+    zend_update_property_long(bacnet_ce_object_identifier, Z_OBJ_P(ZEND_THIS),
+        "instance", sizeof("instance") - 1, instance);
+}
+
+/* getType(): ObjectType */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_bacnet_oid_get_type, 0, 0, Bacnet\\ObjectType, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_ObjectIdentifier, getType)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_object_identifier_obj *obj = Z_BACNET_OID_P(ZEND_THIS);
+    if (Z_TYPE(obj->type_zval) == IS_UNDEF) { RETURN_NULL(); }
+    RETURN_ZVAL(&obj->type_zval, 1, 0);
+}
+
+/* getInstance(): int */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_oid_get_instance, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_ObjectIdentifier, getInstance)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    RETURN_LONG((zend_long)Z_BACNET_OID_P(ZEND_THIS)->instance);
+}
+
+/* __toString(): string — "AV:1", "Device:200" etc. */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_oid_to_string, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_ObjectIdentifier, __toString)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_object_identifier_obj *obj = Z_BACNET_OID_P(ZEND_THIS);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%u:%u", (unsigned)obj->object_type, obj->instance);
+    RETURN_STRING(buf);
+}
+
+static const zend_function_entry bacnet_oid_methods[] = {
+    PHP_ME(Bacnet_ObjectIdentifier, __construct, arginfo_bacnet_oid_construct,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectIdentifier, getType,     arginfo_bacnet_oid_get_type,     ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectIdentifier, getInstance, arginfo_bacnet_oid_get_instance, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectIdentifier, __toString,  arginfo_bacnet_oid_to_string,    ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Helper: register one int-backed enum case                            */
+/* ────────────────────────────────────────────────────────────────────── */
+
+static void bacnet_enum_add_long(zend_class_entry *ce, const char *name, zend_long val)
+{
+    zval v;
+    ZVAL_LONG(&v, val);
+    zend_enum_add_case_cstr(ce, name, &v);
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
 /*  Registration                                                          */
 /* ────────────────────────────────────────────────────────────────────── */
 
@@ -285,40 +381,102 @@ void php_bacnet_register_classes(void)
 {
     zend_class_entry ce;
 
-    /* Bacnet\Exception — extends \Exception */
+    /* ── Exceptions ─────────────────────────────────────────────────── */
+
     INIT_CLASS_ENTRY(ce, "Bacnet\\Exception", NULL);
     bacnet_ce_exception = zend_register_internal_class_ex(&ce, zend_ce_exception);
 
-    /* Bacnet\TimeoutException — extends Bacnet\Exception */
     INIT_CLASS_ENTRY(ce, "Bacnet\\TimeoutException", NULL);
     bacnet_ce_timeout_exception =
         zend_register_internal_class_ex(&ce, bacnet_ce_exception);
 
-    /* Bacnet\DeviceException — extends Bacnet\Exception */
     INIT_CLASS_ENTRY(ce, "Bacnet\\DeviceException", NULL);
     bacnet_ce_device_exception =
         zend_register_internal_class_ex(&ce, bacnet_ce_exception);
-    zend_declare_property_long(bacnet_ce_device_exception, "errorClass", 10, 0,
-        ZEND_ACC_PUBLIC);
-    zend_declare_property_long(bacnet_ce_device_exception, "errorCode",  9,  0,
-        ZEND_ACC_PUBLIC);
+    zend_declare_property_long(bacnet_ce_device_exception,
+        "errorClass", sizeof("errorClass") - 1, 0, ZEND_ACC_PUBLIC);
+    zend_declare_property_long(bacnet_ce_device_exception,
+        "errorCode",  sizeof("errorCode")  - 1, 0, ZEND_ACC_PUBLIC);
 
-    /* Bacnet\Client */
+    /* ── enum Bacnet\ObjectType: int ────────────────────────────────── */
+
+    bacnet_ce_object_type_enum =
+        zend_register_internal_enum("Bacnet\\ObjectType", IS_LONG, NULL);
+
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "ANALOG_INPUT",       0);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "ANALOG_OUTPUT",      1);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "ANALOG_VALUE",       2);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "BINARY_INPUT",       3);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "BINARY_OUTPUT",      4);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "BINARY_VALUE",       5);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "DEVICE",             8);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "EVENT_ENROLLMENT",   9);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "MULTI_STATE_INPUT",  13);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "MULTI_STATE_OUTPUT", 14);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "NOTIFICATION_CLASS", 15);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "SCHEDULE",           17);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "MULTI_STATE_VALUE",  19);
+    bacnet_enum_add_long(bacnet_ce_object_type_enum, "TREND_LOG",          20);
+
+    /* ── enum Bacnet\Property: int ──────────────────────────────────── */
+
+    bacnet_ce_property_enum =
+        zend_register_internal_enum("Bacnet\\Property", IS_LONG, NULL);
+
+    /* Core object properties */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_IDENTIFIER", 75);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_NAME",       77);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_TYPE",       79);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "DESCRIPTION",       28);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_LIST",       76);
+    /* Analog / Binary common */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PRESENT_VALUE",     85);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "STATUS_FLAGS",      111);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "EVENT_STATE",       36);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OUT_OF_SERVICE",    81);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "UNITS",             117);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PRIORITY_ARRAY",    87);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "RELINQUISH_DEFAULT",104);
+    /* Multi-state */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "NUMBER_OF_STATES",  74);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "STATE_TEXT",        110);
+    /* Notifications */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "NOTIFICATION_CLASS",17);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "ACK_REQUIRED",      1);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "NOTIFY_TYPE",       72);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "EVENT_TYPE",        37);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "EVENT_PARAMETERS",  83);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_PROPERTY_REFERENCE", 78);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "RECIPIENT_LIST",    102);
+    /* Schedule */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "WEEKLY_SCHEDULE",   123);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "EXCEPTION_SCHEDULE",38);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "SCHEDULE_DEFAULT",  174);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "EFFECTIVE_PERIOD",  32);
+    /* TrendLog */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "LOG_BUFFER",        131);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "LOG_DEVICE_OBJECT_PROPERTY", 132);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "RECORD_COUNT",      141);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "TOTAL_RECORD_COUNT",145);
+    /* Misc */
+    bacnet_enum_add_long(bacnet_ce_property_enum, "RELIABILITY",       103);
+
+    /* ── Bacnet\Client ───────────────────────────────────────────────── */
+
     memcpy(&php_bacnet_client_handlers,
-           zend_get_std_object_handlers(),
-           sizeof(zend_object_handlers));
+           zend_get_std_object_handlers(), sizeof(zend_object_handlers));
     php_bacnet_client_handlers.offset    = XtOffsetOf(php_bacnet_client_obj, std);
     php_bacnet_client_handlers.free_obj  = php_bacnet_client_free_object;
-    php_bacnet_client_handlers.clone_obj = NULL; /* cloning not allowed */
+    php_bacnet_client_handlers.clone_obj = NULL;
 
     INIT_CLASS_ENTRY(ce, "Bacnet\\Client", bacnet_client_methods);
     bacnet_ce_client = zend_register_internal_class(&ce);
     bacnet_ce_client->create_object = php_bacnet_client_create_object;
 
-    /* Bacnet\Device */
+    /* ── Bacnet\Device ───────────────────────────────────────────────── */
+
     memcpy(&php_bacnet_device_handlers,
-           zend_get_std_object_handlers(),
-           sizeof(zend_object_handlers));
+           zend_get_std_object_handlers(), sizeof(zend_object_handlers));
     php_bacnet_device_handlers.offset    = XtOffsetOf(php_bacnet_device_obj, std);
     php_bacnet_device_handlers.free_obj  = php_bacnet_device_free_object;
     php_bacnet_device_handlers.clone_obj = NULL;
@@ -327,9 +485,26 @@ void php_bacnet_register_classes(void)
     bacnet_ce_device = zend_register_internal_class(&ce);
     bacnet_ce_device->create_object = php_bacnet_device_create_object;
 
-    /* Remaining classes: stubs for Phase 3/4/5 */
-    INIT_CLASS_ENTRY(ce, "Bacnet\\ObjectIdentifier", NULL);
+    /* ── Bacnet\ObjectIdentifier ─────────────────────────────────────── */
+
+    memcpy(&php_bacnet_oid_handlers,
+           zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    php_bacnet_oid_handlers.offset    = XtOffsetOf(php_bacnet_object_identifier_obj, std);
+    php_bacnet_oid_handlers.free_obj  = php_bacnet_oid_free_object;
+    php_bacnet_oid_handlers.clone_obj = NULL;
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\ObjectIdentifier", bacnet_oid_methods);
     bacnet_ce_object_identifier = zend_register_internal_class(&ce);
+    bacnet_ce_object_identifier->create_object = php_bacnet_oid_create_object;
+
+    zend_declare_property_null(bacnet_ce_object_identifier,
+        "type",     sizeof("type")     - 1, ZEND_ACC_PUBLIC);
+    zend_declare_property_long(bacnet_ce_object_identifier,
+        "instance", sizeof("instance") - 1, 0, ZEND_ACC_PUBLIC);
+
+    bacnet_ce_object_identifier->get_iterator = NULL;
+
+    /* ── Remaining stubs (Phase 4/5/6) ──────────────────────────────── */
 
     INIT_CLASS_ENTRY(ce, "Bacnet\\ObjectRef", NULL);
     bacnet_ce_object_ref = zend_register_internal_class(&ce);
