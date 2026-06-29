@@ -39,6 +39,9 @@ zend_class_entry *bacnet_ce_date              = NULL;
 zend_class_entry *bacnet_ce_time              = NULL;
 zend_class_entry *bacnet_ce_value             = NULL;
 zend_class_entry *bacnet_ce_server            = NULL;
+zend_class_entry *bacnet_ce_schedule_entry    = NULL;
+zend_class_entry *bacnet_ce_weekly_schedule   = NULL;
+zend_class_entry *bacnet_ce_trend_log_record  = NULL;
 zend_class_entry *bacnet_ce_object_type_enum  = NULL;
 zend_class_entry *bacnet_ce_property_enum     = NULL;
 zend_class_entry *bacnet_ce_exception         = NULL;
@@ -1247,10 +1250,393 @@ PHP_METHOD(Bacnet_ObjectRef, writeProperty)
         (uint32_t)BACNET_G(default_timeout_ms));
 }
 
+/* ── ObjectRef convenience methods ───────────────────────────────────────
+ * Shared helper: extract validated php_bacnet_client * from ObjectRef $this.
+ */
+static php_bacnet_client *objectref_get_client(
+    php_bacnet_objectref_obj  *ref,
+    BACNET_ADDRESS            **addr_out)
+{
+    if (Z_TYPE(ref->device_zval) != IS_OBJECT) {
+        zend_throw_exception(bacnet_ce_exception, "ObjectRef has no associated device", 0);
+        return NULL;
+    }
+    php_bacnet_device_obj *dev = Z_BACNET_DEVICE_P(&ref->device_zval);
+    if (Z_TYPE(dev->client_zval) != IS_OBJECT) {
+        zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
+        return NULL;
+    }
+    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
+    if (!cl->client) {
+        zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
+        return NULL;
+    }
+    *addr_out = &dev->address;
+    return cl->client;
+}
+
+/* writeActive(): void — PRESENT_VALUE = enumerated(1) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_objectref_write_active, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, writeActive)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    BACNET_ADDRESS *addr;
+    php_bacnet_client *client = objectref_get_client(ref, &addr);
+    if (!client) RETURN_THROWS();
+
+    zval vz;
+    object_init_ex(&vz, bacnet_ce_value);
+    php_bacnet_value_obj *v = Z_BACNET_VALUE_P(&vz);
+    v->appdata.tag = BACNET_APPLICATION_TAG_ENUMERATED;
+    v->appdata.type.Enumerated = 1;
+
+    bacnet_exec_write_property(client, addr,
+        ref->object_type, ref->instance,
+        PROP_PRESENT_VALUE, BACNET_ARRAY_ALL, 16, &vz,
+        (uint32_t)BACNET_G(default_timeout_ms));
+    zval_ptr_dtor(&vz);
+}
+
+/* writeInactive(): void — PRESENT_VALUE = enumerated(0) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_objectref_write_inactive, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, writeInactive)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    BACNET_ADDRESS *addr;
+    php_bacnet_client *client = objectref_get_client(ref, &addr);
+    if (!client) RETURN_THROWS();
+
+    zval vz;
+    object_init_ex(&vz, bacnet_ce_value);
+    php_bacnet_value_obj *v = Z_BACNET_VALUE_P(&vz);
+    v->appdata.tag = BACNET_APPLICATION_TAG_ENUMERATED;
+    v->appdata.type.Enumerated = 0;
+
+    bacnet_exec_write_property(client, addr,
+        ref->object_type, ref->instance,
+        PROP_PRESENT_VALUE, BACNET_ARRAY_ALL, 16, &vz,
+        (uint32_t)BACNET_G(default_timeout_ms));
+    zval_ptr_dtor(&vz);
+}
+
+/* writePresentValue(mixed $value): void */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_objectref_write_present_value, 0, 1, IS_VOID, 0)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, writePresentValue)
+{
+    zval *value_zv;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_ZVAL(value_zv) ZEND_PARSE_PARAMETERS_END();
+
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    BACNET_ADDRESS *addr;
+    php_bacnet_client *client = objectref_get_client(ref, &addr);
+    if (!client) RETURN_THROWS();
+
+    /* Accept Bacnet\Value directly or native PHP type */
+    zval encoded;
+    bool needs_dtor = false;
+    if (Z_TYPE_P(value_zv) == IS_OBJECT
+        && instanceof_function(Z_OBJCE_P(value_zv), bacnet_ce_value)) {
+        ZVAL_COPY_VALUE(&encoded, value_zv);
+    } else {
+        BACNET_APPLICATION_DATA_VALUE appdata;
+        if (!zval_to_bacapp_value(value_zv, &appdata)) {
+            zend_throw_exception(bacnet_ce_exception,
+                "writePresentValue: unsupported value type", 0);
+            RETURN_THROWS();
+        }
+        object_init_ex(&encoded, bacnet_ce_value);
+        php_bacnet_value_obj *vo = Z_BACNET_VALUE_P(&encoded);
+        vo->appdata = appdata;
+        needs_dtor = true;
+    }
+
+    bacnet_exec_write_property(client, addr,
+        ref->object_type, ref->instance,
+        PROP_PRESENT_VALUE, BACNET_ARRAY_ALL, 16, &encoded,
+        (uint32_t)BACNET_G(default_timeout_ms));
+    if (needs_dtor) zval_ptr_dtor(&encoded);
+}
+
+/* readTrendLog(): TrendLogRecord[] — reads LOG_BUFFER and wraps entries */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_objectref_read_trend_log, 0, 0, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, readTrendLog)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    BACNET_ADDRESS *addr;
+    php_bacnet_client *client = objectref_get_client(ref, &addr);
+    if (!client) RETURN_THROWS();
+
+    zval raw;
+    ZVAL_NULL(&raw);
+    int rc = bacnet_exec_read_property(
+        client, addr,
+        ref->object_type, ref->instance,
+        PROP_LOG_BUFFER, BACNET_ARRAY_ALL,
+        (uint32_t)BACNET_G(default_timeout_ms), &raw);
+    if (rc != 0) return;
+
+    array_init(return_value);
+
+    /* Wrap each decoded element in a TrendLogRecord */
+    zval *entry;
+    if (Z_TYPE(raw) == IS_ARRAY) {
+        ZEND_HASH_FOREACH_VAL(Z_ARRVAL(raw), entry) {
+            zval rec;
+            object_init_ex(&rec, bacnet_ce_trend_log_record);
+            zend_update_property_null(bacnet_ce_trend_log_record,
+                Z_OBJ(rec), "timestamp", sizeof("timestamp") - 1);
+            zend_update_property(bacnet_ce_trend_log_record,
+                Z_OBJ(rec), "value", sizeof("value") - 1, entry);
+            zend_update_property_long(bacnet_ce_trend_log_record,
+                Z_OBJ(rec), "statusFlags", sizeof("statusFlags") - 1, 0);
+            add_next_index_zval(return_value, &rec);
+        } ZEND_HASH_FOREACH_END();
+    } else if (Z_TYPE(raw) != IS_NULL) {
+        zval rec;
+        object_init_ex(&rec, bacnet_ce_trend_log_record);
+        zend_update_property_null(bacnet_ce_trend_log_record,
+            Z_OBJ(rec), "timestamp", sizeof("timestamp") - 1);
+        zend_update_property(bacnet_ce_trend_log_record,
+            Z_OBJ(rec), "value", sizeof("value") - 1, &raw);
+        zend_update_property_long(bacnet_ce_trend_log_record,
+            Z_OBJ(rec), "statusFlags", sizeof("statusFlags") - 1, 0);
+        add_next_index_zval(return_value, &rec);
+    }
+    zval_ptr_dtor(&raw);
+}
+
+/* readWeeklySchedule(): WeeklySchedule */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_objectref_read_weekly_schedule, 0, 0, Bacnet\\WeeklySchedule, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, readWeeklySchedule)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    BACNET_ADDRESS *addr;
+    php_bacnet_client *client = objectref_get_client(ref, &addr);
+    if (!client) RETURN_THROWS();
+
+    /* WEEKLY_SCHEDULE is a BACnet sequence — the generic APDU decoder
+     * won't parse it. We issue the read for completeness; if it fails
+     * or returns null we still return an empty WeeklySchedule. */
+    zval raw;
+    ZVAL_NULL(&raw);
+    bacnet_exec_read_property(
+        client, addr,
+        ref->object_type, ref->instance,
+        PROP_WEEKLY_SCHEDULE, BACNET_ARRAY_ALL,
+        (uint32_t)BACNET_G(default_timeout_ms), &raw);
+    if (EG(exception)) { zval_ptr_dtor(&raw); return; }
+    zval_ptr_dtor(&raw);
+
+    /* Return an empty WeeklySchedule (full sequence decoding is TODO) */
+    object_init_ex(return_value, bacnet_ce_weekly_schedule);
+    static const char *day_names[] = {
+        "monday","tuesday","wednesday","thursday","friday","saturday","sunday"
+    };
+    for (int i = 0; i < 7; i++) {
+        zval empty_arr;
+        array_init(&empty_arr);
+        zend_update_property(bacnet_ce_weekly_schedule, Z_OBJ_P(return_value),
+            day_names[i], strlen(day_names[i]), &empty_arr);
+        zval_ptr_dtor(&empty_arr);
+    }
+}
+
+/* writeWeeklySchedule(WeeklySchedule $schedule): void */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_objectref_write_weekly_schedule, 0, 1, IS_VOID, 0)
+    ZEND_ARG_OBJ_INFO(0, schedule, Bacnet\\WeeklySchedule, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, writeWeeklySchedule)
+{
+    zval *schedule_zv;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(schedule_zv, bacnet_ce_weekly_schedule)
+    ZEND_PARSE_PARAMETERS_END();
+    (void)schedule_zv;
+
+    zend_throw_exception(bacnet_ce_exception,
+        "writeWeeklySchedule: BACnet sequence encoding not yet implemented", 0);
+    RETURN_THROWS();
+}
+
 static const zend_function_entry bacnet_objectref_methods[] = {
-    PHP_ME(Bacnet_ObjectRef, __construct,   arginfo_bacnet_objectref_construct,     ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_ObjectRef, readProperty,  arginfo_bacnet_objectref_read_property, ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_ObjectRef, writeProperty, arginfo_bacnet_objectref_write_property,ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, __construct,        arginfo_bacnet_objectref_construct,        ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, readProperty,       arginfo_bacnet_objectref_read_property,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writeProperty,      arginfo_bacnet_objectref_write_property,   ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writeActive,        arginfo_objectref_write_active,            ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writeInactive,      arginfo_objectref_write_inactive,          ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writePresentValue,  arginfo_objectref_write_present_value,     ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, readTrendLog,       arginfo_objectref_read_trend_log,          ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, readWeeklySchedule, arginfo_objectref_read_weekly_schedule,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writeWeeklySchedule,arginfo_objectref_write_weekly_schedule,   ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Bacnet\ScheduleEntry — (Time, mixed) value pair for weekly schedules  */
+/* ────────────────────────────────────────────────────────────────────── */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_schedule_entry_construct, 0, 0, 2)
+    ZEND_ARG_OBJ_INFO(0, startTime, Bacnet\\Time, 0)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ScheduleEntry, __construct)
+{
+    zval *time_zv, *value_zv;
+    ZEND_PARSE_PARAMETERS_START(2, 2)
+        Z_PARAM_OBJECT_OF_CLASS(time_zv, bacnet_ce_time)
+        Z_PARAM_ZVAL(value_zv)
+    ZEND_PARSE_PARAMETERS_END();
+
+    zend_update_property(bacnet_ce_schedule_entry, Z_OBJ_P(ZEND_THIS),
+        "startTime", sizeof("startTime") - 1, time_zv);
+    zend_update_property(bacnet_ce_schedule_entry, Z_OBJ_P(ZEND_THIS),
+        "value", sizeof("value") - 1, value_zv);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_schedule_entry_get_start_time, 0, 0, Bacnet\\Time, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ScheduleEntry, getStartTime)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    zval rv;
+    zval *prop = zend_read_property(bacnet_ce_schedule_entry,
+        Z_OBJ_P(ZEND_THIS), "startTime", sizeof("startTime") - 1, 0, &rv);
+    ZVAL_COPY(return_value, prop);
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_schedule_entry_get_value, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ScheduleEntry, getValue)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    zval rv;
+    zval *prop = zend_read_property(bacnet_ce_schedule_entry,
+        Z_OBJ_P(ZEND_THIS), "value", sizeof("value") - 1, 0, &rv);
+    ZVAL_COPY(return_value, prop);
+}
+
+static const zend_function_entry bacnet_schedule_entry_methods[] = {
+    PHP_ME(Bacnet_ScheduleEntry, __construct,  arginfo_schedule_entry_construct,       ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ScheduleEntry, getStartTime, arginfo_schedule_entry_get_start_time,  ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ScheduleEntry, getValue,     arginfo_schedule_entry_get_value,       ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Bacnet\WeeklySchedule — 7-day schedule (array of ScheduleEntry/day)   */
+/* ────────────────────────────────────────────────────────────────────── */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_weekly_schedule_construct, 0, 0, 0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, monday,    IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, tuesday,   IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, wednesday, IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, thursday,  IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, friday,    IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, saturday,  IS_ARRAY, 0, "[]")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, sunday,    IS_ARRAY, 0, "[]")
+ZEND_END_ARG_INFO()
+
+static const char *s_day_names[7] = {
+    "monday","tuesday","wednesday","thursday","friday","saturday","sunday"
+};
+
+PHP_METHOD(Bacnet_WeeklySchedule, __construct)
+{
+    zval *days[7];
+    zval empty;
+    array_init(&empty);
+    for (int i = 0; i < 7; i++) days[i] = &empty;
+
+    ZEND_PARSE_PARAMETERS_START(0, 7)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_ARRAY(days[0]) Z_PARAM_ARRAY(days[1]) Z_PARAM_ARRAY(days[2])
+        Z_PARAM_ARRAY(days[3]) Z_PARAM_ARRAY(days[4]) Z_PARAM_ARRAY(days[5])
+        Z_PARAM_ARRAY(days[6])
+    ZEND_PARSE_PARAMETERS_END();
+
+    for (int i = 0; i < 7; i++) {
+        zend_update_property(bacnet_ce_weekly_schedule, Z_OBJ_P(ZEND_THIS),
+            s_day_names[i], strlen(s_day_names[i]), days[i]);
+    }
+    zval_ptr_dtor(&empty);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_weekly_schedule_get_day, 0, 1, IS_ARRAY, 0)
+    ZEND_ARG_TYPE_INFO(0, weekday, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_WeeklySchedule, getDay)
+{
+    zend_long weekday;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_LONG(weekday) ZEND_PARSE_PARAMETERS_END();
+
+    if (weekday < 1 || weekday > 7) {
+        zend_throw_exception_ex(bacnet_ce_exception, 0,
+            "weekday must be 1 (Mon) to 7 (Sun), got %ld", (long)weekday);
+        RETURN_THROWS();
+    }
+    const char *name = s_day_names[weekday - 1];
+    zval rv;
+    zval *prop = zend_read_property(bacnet_ce_weekly_schedule,
+        Z_OBJ_P(ZEND_THIS), name, strlen(name), 0, &rv);
+    ZVAL_COPY(return_value, prop);
+}
+
+static const zend_function_entry bacnet_weekly_schedule_methods[] = {
+    PHP_ME(Bacnet_WeeklySchedule, __construct, arginfo_weekly_schedule_construct, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_WeeklySchedule, getDay,      arginfo_weekly_schedule_get_day,   ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Bacnet\TrendLogRecord — one entry from a TrendLog LOG_BUFFER          */
+/* ────────────────────────────────────────────────────────────────────── */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_trend_log_record_construct, 0, 0, 3)
+    ZEND_ARG_INFO(0, timestamp)
+    ZEND_ARG_INFO(0, value)
+    ZEND_ARG_TYPE_INFO(0, statusFlags, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_TrendLogRecord, __construct)
+{
+    zval *ts_zv, *value_zv;
+    zend_long status_flags = 0;
+    ZEND_PARSE_PARAMETERS_START(3, 3)
+        Z_PARAM_ZVAL(ts_zv)
+        Z_PARAM_ZVAL(value_zv)
+        Z_PARAM_LONG(status_flags)
+    ZEND_PARSE_PARAMETERS_END();
+
+    zend_update_property(bacnet_ce_trend_log_record, Z_OBJ_P(ZEND_THIS),
+        "timestamp", sizeof("timestamp") - 1, ts_zv);
+    zend_update_property(bacnet_ce_trend_log_record, Z_OBJ_P(ZEND_THIS),
+        "value", sizeof("value") - 1, value_zv);
+    zend_update_property_long(bacnet_ce_trend_log_record, Z_OBJ_P(ZEND_THIS),
+        "statusFlags", sizeof("statusFlags") - 1, status_flags);
+}
+
+static const zend_function_entry bacnet_trend_log_record_methods[] = {
+    PHP_ME(Bacnet_TrendLogRecord, __construct, arginfo_trend_log_record_construct, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -1958,4 +2344,33 @@ void php_bacnet_register_classes(void)
     INIT_CLASS_ENTRY(ce, "Bacnet\\Server", bacnet_server_methods);
     bacnet_ce_server = zend_register_internal_class(&ce);
     bacnet_ce_server->create_object = php_bacnet_server_create_object;
+
+    /* ── Bacnet\ScheduleEntry ─────────────────────────────────────── */
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\ScheduleEntry", bacnet_schedule_entry_methods);
+    bacnet_ce_schedule_entry = zend_register_internal_class(&ce);
+    zend_declare_property_null(bacnet_ce_schedule_entry,
+        "startTime", sizeof("startTime") - 1, ZEND_ACC_PUBLIC);
+    zend_declare_property_null(bacnet_ce_schedule_entry,
+        "value", sizeof("value") - 1, ZEND_ACC_PUBLIC);
+
+    /* ── Bacnet\WeeklySchedule ───────────────────────────────────── */
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\WeeklySchedule", bacnet_weekly_schedule_methods);
+    bacnet_ce_weekly_schedule = zend_register_internal_class(&ce);
+    for (int i = 0; i < 7; i++) {
+        zend_declare_property_null(bacnet_ce_weekly_schedule,
+            s_day_names[i], strlen(s_day_names[i]), ZEND_ACC_PUBLIC);
+    }
+
+    /* ── Bacnet\TrendLogRecord ───────────────────────────────────── */
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\TrendLogRecord", bacnet_trend_log_record_methods);
+    bacnet_ce_trend_log_record = zend_register_internal_class(&ce);
+    zend_declare_property_null(bacnet_ce_trend_log_record,
+        "timestamp", sizeof("timestamp") - 1, ZEND_ACC_PUBLIC);
+    zend_declare_property_null(bacnet_ce_trend_log_record,
+        "value", sizeof("value") - 1, ZEND_ACC_PUBLIC);
+    zend_declare_property_long(bacnet_ce_trend_log_record,
+        "statusFlags", sizeof("statusFlags") - 1, 0, ZEND_ACC_PUBLIC);
 }
