@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package packagerversion="1.10.15" version="2.0"
+  xmlns="http://pear.php.net/dtd/package-2.0"
+  xmlns:tasks="http://pear.php.net/dtd/tasks-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://pear.php.net/dtd/tasks-1.0
+    http://pear.php.net/dtd/tasks-1.0.xsd
+    http://pear.php.net/dtd/package-2.0
+    http://pear.php.net/dtd/package-2.0.xsd">
+
+  <name>bacnet</name>
+  <channel>pecl.php.net</channel>
+  <summary>BACnet/IP client and server for PHP 8.4+</summary>
+  <description>
+    php-bacnet provides native BACnet/IP communication by wrapping the
+    bacnet-stack C library.  It exposes a type-safe OOP API under the
+    Bacnet\ namespace, supporting client mode (device discovery,
+    ReadProperty, WriteProperty) and server mode (respond to BACnet
+    requests via PHP callbacks).
+  </description>
+
+  <lead>
+    <name>php-bacnet contributors</name>
+    <user>phpbacnet</user>
+    <email>hammermaps771@gmail.com</email>
+    <active>yes</active>
+  </lead>
+
+  <date>2026-06-29</date>
+  <version>
+    <release>0.1.0</release>
+    <api>0.1.0</api>
+  </version>
+  <stability>
+    <release>alpha</release>
+    <api>alpha</api>
+  </stability>
+  <license uri="https://opensource.org/licenses/BSD-3-Clause">BSD-3-Clause</license>
+
+  <notes>
+    Initial release.  Client mode (whoIs, readProperty, writeProperty),
+    Server mode (poll, onReadProperty, onWriteProperty), full type system
+    (Value, BitString, Date, Time, ObjectIdentifier, ScheduleEntry,
+    WeeklySchedule, TrendLogRecord), ObjectType and Property enums.
+  </notes>
+
+  <contents>
+    <dir name="/">
+      <file name="config.m4"        role="src"/>
+      <file name="bacnet.c"         role="src"/>
+      <file name="php_bacnet.h"     role="src"/>
+      <file name="README.md"        role="doc"/>
+      <file name="CHANGELOG.md"     role="doc"/>
+      <file name="LICENSE"          role="doc"/>
+      <dir name="src">
+        <file name="bacnet_classes.c"  role="src"/>
+        <file name="bacnet_classes.h"  role="src"/>
+        <file name="bacnet_client.c"   role="src"/>
+        <file name="bacnet_client.h"   role="src"/>
+        <file name="bacnet_helpers.c"  role="src"/>
+        <file name="bacnet_helpers.h"  role="src"/>
+        <file name="bacnet_types.h"    role="src"/>
+      </dir>
+      <dir name="tests">
+        <file name="001_client_construct.phpt"   role="test"/>
+        <file name="002_whois_no_network.phpt"   role="test"/>
+        <file name="003_exceptions.phpt"          role="test"/>
+        <file name="004_enums.phpt"               role="test"/>
+        <file name="005_read_property_types.phpt" role="test"/>
+        <file name="006_write_property.phpt"      role="test"/>
+        <file name="007_server_mode.phpt"         role="test"/>
+        <file name="008_advanced_types.phpt"      role="test"/>
+        <file name="README.md"                    role="doc"/>
+      </dir>
+      <dir name="stubs">
+        <file name="bacnet.stub.php" role="doc"/>
+      </dir>
+      <dir name="scripts">
+        <file name="build-deps.sh" role="src"/>
+      </dir>
+    </dir>
+  </contents>
+
+  <dependencies>
+    <required>
+      <php>
+        <min>8.4.0</min>
+      </php>
+      <pearinstaller>
+        <min>1.10.0</min>
+      </pearinstaller>
+    </required>
+  </dependencies>
+
+  <providesextension>bacnet</providesextension>
+
+  <extsrcrelease/>
+
+</package>

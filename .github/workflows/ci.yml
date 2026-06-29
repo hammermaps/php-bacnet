@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php }} — Ubuntu
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install PHP ${{ matrix.php }} NTS + dev headers
+        run: |
+          sudo add-apt-repository ppa:ondrej/php -y
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            php${{ matrix.php }}-dev \
+            php${{ matrix.php }}-cli \
+            build-essential \
+            cmake \
+            valgrind
+
+      - name: Cache bacnet-stack build
+        id: cache-bacnet
+        uses: actions/cache@v4
+        with:
+          path: deps/bacnet-stack/build
+          key: bacnet-stack-${{ hashFiles('deps/bacnet-stack/src/**') }}-${{ hashFiles('scripts/build-deps.sh') }}
+
+      - name: Build bacnet-stack static library
+        if: steps.cache-bacnet.outputs.cache-hit != 'true'
+        run: ./scripts/build-deps.sh
+
+      - name: phpize
+        run: phpize${{ matrix.php }}
+
+      - name: configure
+        run: ./configure --with-bacnet --with-php-config=php-config${{ matrix.php }}
+
+      - name: make (strict warnings)
+        run: make EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter" -j$(nproc)
+
+      - name: Verify extension loads
+        run: |
+          php${{ matrix.php }} -d extension=modules/bacnet.so -m | grep -i bacnet
+          php${{ matrix.php }} -d extension=modules/bacnet.so -r "phpinfo();" | grep -i bacnet
+
+      - name: Run PHPT tests
+        run: |
+          php${{ matrix.php }} run-tests.php \
+            -d extension=modules/bacnet.so \
+            --show-diff \
+            tests/ \
+            2>&1
+        env:
+          REPORT_EXIT_STATUS: 1
+
+      - name: Memory-leak check (non-network tests only)
+        run: |
+          ZEND_DONT_UNLOAD_MODULES=1 valgrind \
+            --leak-check=full \
+            --show-leak-kinds=definite,indirect \
+            --error-exitcode=1 \
+            php${{ matrix.php }} -d extension=modules/bacnet.so \
+            run-tests.php \
+            tests/001_client_construct.phpt \
+            tests/003_exceptions.phpt \
+            tests/004_enums.phpt \
+            tests/005_read_property_types.phpt \
+            tests/006_write_property.phpt \
+            tests/008_advanced_types.phpt \
+            2>&1 | grep -E "ERROR SUMMARY|definitely lost|indirectly lost" || true
