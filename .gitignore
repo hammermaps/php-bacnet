@@ -36,3 +36,6 @@ tests/c_client_test
 .idea/
 *.swp
 *~
+
+# Claude Code session resume stubs
+claude --resume *
