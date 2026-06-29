@@ -15,8 +15,11 @@
 #include "bacnet/bacenum.h"
 #include "bacnet/whois.h"
 #include "bacnet/rp.h"
+#include "bacnet/wp.h"
 #include "bacnet/bacapp.h"
 #include "bacnet/bacerror.h"
+#include "bacnet/bacstr.h"
+#include "bacnet/datetime.h"
 
 #include "../php_bacnet.h"
 #include "bacnet_classes.h"
@@ -49,6 +52,7 @@ static zend_object_handlers php_bacnet_bitstring_handlers;
 static zend_object_handlers php_bacnet_date_handlers;
 static zend_object_handlers php_bacnet_time_handlers;
 static zend_object_handlers php_bacnet_objectref_handlers;
+static zend_object_handlers php_bacnet_value_handlers;
 
 /* ── Shared ReadProperty logic ───────────────────────────────────────────
  * Called by both Device::readProperty and ObjectRef::readProperty.
@@ -154,6 +158,292 @@ static int bacnet_exec_read_property(
 
     return 0;
 }
+
+/* ── Shared WriteProperty logic ──────────────────────────────────────────
+ * Throws on error, returns 0 on success (void PHP method).
+ */
+static int bacnet_exec_write_property(
+    php_bacnet_client  *client,
+    BACNET_ADDRESS     *dest,
+    BACNET_OBJECT_TYPE  obj_type,
+    uint32_t            obj_inst,
+    BACNET_PROPERTY_ID  prop_id,
+    uint32_t            array_index,
+    uint8_t             priority,
+    zval               *value_zv,
+    uint32_t            timeout_ms)
+{
+    php_bacnet_value_obj *val = Z_BACNET_VALUE_P(value_zv);
+
+    /* Encode the application data into the WP struct's inline buffer */
+    BACNET_WRITE_PROPERTY_DATA wpdata;
+    memset(&wpdata, 0, sizeof(wpdata));
+    wpdata.object_type     = obj_type;
+    wpdata.object_instance = obj_inst;
+    wpdata.object_property = prop_id;
+    wpdata.array_index     = (BACNET_ARRAY_INDEX)array_index;
+    wpdata.priority        = priority;
+
+    int enc_len = bacapp_encode_application_data(
+        wpdata.application_data, &val->appdata);
+    if (enc_len <= 0) {
+        zend_throw_exception(bacnet_ce_exception,
+            "Failed to encode WriteProperty application data", 0);
+        return -1;
+    }
+    wpdata.application_data_len = enc_len;
+
+    /* Build WriteProperty APDU */
+    uint8_t invoke_id = BACNET_G(next_invoke_id)++;
+    uint8_t req_apdu[MAX_APDU];
+    int req_len = wp_encode_apdu(req_apdu, invoke_id, &wpdata);
+    if (req_len <= 0) {
+        zend_throw_exception(bacnet_ce_exception,
+            "Failed to encode WriteProperty APDU", 0);
+        return -1;
+    }
+
+    /* Send and wait — Simple-ACK on success */
+    uint8_t  resp_apdu[MAX_APDU];
+    uint16_t resp_len = 0;
+    int status = php_bacnet_send_and_wait(
+        client, dest,
+        req_apdu, (uint16_t)req_len,
+        invoke_id, resp_apdu, &resp_len, timeout_ms);
+
+    if (status == -1) {
+        zend_throw_exception_ex(bacnet_ce_timeout_exception, 0,
+            "WriteProperty timed out after %u ms", (unsigned)timeout_ms);
+        return -1;
+    }
+
+    if (status == (int)PDU_TYPE_ERROR) {
+        if (resp_len < 3) {
+            zend_throw_exception(bacnet_ce_device_exception,
+                "BACnet write error (malformed)", 0);
+            return -1;
+        }
+        uint8_t                  err_iid = 0;
+        BACNET_CONFIRMED_SERVICE svc    = SERVICE_CONFIRMED_WRITE_PROPERTY;
+        BACNET_ERROR_CLASS       ec     = ERROR_CLASS_DEVICE;
+        BACNET_ERROR_CODE        code   = ERROR_CODE_OTHER;
+        bacerror_decode_service_request(
+            resp_apdu + 1, resp_len - 1, &err_iid, &svc, &ec, &code);
+
+        zend_throw_exception_ex(bacnet_ce_device_exception, 0,
+            "BACnet write error: class=%d code=%d", (int)ec, (int)code);
+        if (EG(exception)) {
+            zend_update_property_long(bacnet_ce_device_exception, EG(exception),
+                "errorClass", sizeof("errorClass") - 1, (zend_long)ec);
+            zend_update_property_long(bacnet_ce_device_exception, EG(exception),
+                "errorCode",  sizeof("errorCode")  - 1, (zend_long)code);
+        }
+        return -1;
+    }
+
+    if (status == (int)PDU_TYPE_REJECT || status == (int)PDU_TYPE_ABORT) {
+        uint8_t reason = (resp_len > 2) ? resp_apdu[2] : 0;
+        zend_throw_exception_ex(bacnet_ce_device_exception, 0,
+            "BACnet %s PDU during write (reason %u)",
+            (status == (int)PDU_TYPE_REJECT) ? "Reject" : "Abort",
+            (unsigned)reason);
+        return -1;
+    }
+
+    return 0; /* Simple-ACK → success */
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Bacnet\Value — typed factory class                                    */
+/* ────────────────────────────────────────────────────────────────────── */
+
+static zend_object *php_bacnet_value_create_object(zend_class_entry *ce)
+{
+    php_bacnet_value_obj *obj =
+        (php_bacnet_value_obj *)zend_object_alloc(sizeof(php_bacnet_value_obj), ce);
+    memset(&obj->appdata, 0, sizeof(obj->appdata));
+    zend_object_std_init(&obj->std, ce);
+    object_properties_init(&obj->std, ce);
+    obj->std.handlers = &php_bacnet_value_handlers;
+    return &obj->std;
+}
+
+static void php_bacnet_value_free_object(zend_object *object)
+{
+    zend_object_std_dtor(object);
+}
+
+/* Helper: allocate new Value object, set tag and fill appdata, return it */
+static php_bacnet_value_obj *bacnet_value_alloc(zval *out)
+{
+    object_init_ex(out, bacnet_ce_value);
+    return Z_BACNET_VALUE_P(out);
+}
+
+/* Value::boolean(bool $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_boolean, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, boolean)
+{
+    bool v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_BOOL(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_BOOLEAN;
+    obj->appdata.type.Boolean = v;
+}
+
+/* Value::unsignedInt(int $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_unsigned_int, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, unsignedInt)
+{
+    zend_long v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_LONG(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_UNSIGNED_INT;
+    obj->appdata.type.Unsigned_Int = (BACNET_UNSIGNED_INTEGER)(v < 0 ? 0 : (uint32_t)v);
+}
+
+/* Value::signedInt(int $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_signed_int, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, signedInt)
+{
+    zend_long v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_LONG(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_SIGNED_INT;
+    obj->appdata.type.Signed_Int = (int32_t)v;
+}
+
+/* Value::real(float $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_real, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, IS_DOUBLE, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, real)
+{
+    double v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_DOUBLE(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_REAL;
+    obj->appdata.type.Real = (float)v;
+}
+
+/* Value::enumerated(int $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_enumerated, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, enumerated)
+{
+    zend_long v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_LONG(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_ENUMERATED;
+    obj->appdata.type.Enumerated = (uint32_t)v;
+}
+
+/* Value::characterString(string $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_character_string, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_TYPE_INFO(0, value, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, characterString)
+{
+    zend_string *v;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_STR(v) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_CHARACTER_STRING;
+    characterstring_init_ansi(&obj->appdata.type.Character_String, ZSTR_VAL(v));
+}
+
+/* Value::bitString(BitString $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_bit_string, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_OBJ_INFO(0, value, Bacnet\\BitString, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, bitString)
+{
+    zval *bsv;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(bsv, bacnet_ce_bit_string)
+    ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_bitstring_obj *bs = Z_BACNET_BITSTRING_P(bsv);
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_BIT_STRING;
+    obj->appdata.type.Bit_String.bits_used = bs->bits_used;
+    memcpy(obj->appdata.type.Bit_String.value, bs->value,
+           sizeof(obj->appdata.type.Bit_String.value));
+}
+
+/* Value::date(Date $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_date, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_OBJ_INFO(0, value, Bacnet\\Date, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, date)
+{
+    zval *dv;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(dv, bacnet_ce_date)
+    ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_date_obj *d = Z_BACNET_DATE_P(dv);
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_DATE;
+    obj->appdata.type.Date.year  = d->year;
+    obj->appdata.type.Date.month = d->month;
+    obj->appdata.type.Date.day   = d->day;
+    obj->appdata.type.Date.wday  = d->weekday;
+}
+
+/* Value::time(Time $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_time, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_OBJ_INFO(0, value, Bacnet\\Time, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, time)
+{
+    zval *tv;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(tv, bacnet_ce_time)
+    ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_time_obj *t = Z_BACNET_TIME_P(tv);
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_TIME;
+    obj->appdata.type.Time.hour        = t->hour;
+    obj->appdata.type.Time.min         = t->minute;
+    obj->appdata.type.Time.sec         = t->second;
+    obj->appdata.type.Time.hundredths  = t->hundredths;
+}
+
+/* Value::objectIdentifier(ObjectIdentifier $v): self */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_value_object_identifier, 0, 1, Bacnet\\Value, 0)
+    ZEND_ARG_OBJ_INFO(0, value, Bacnet\\ObjectIdentifier, 0)
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Value, objectIdentifier)
+{
+    zval *oidv;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(oidv, bacnet_ce_object_identifier)
+    ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_object_identifier_obj *oid = Z_BACNET_OID_P(oidv);
+    php_bacnet_value_obj *obj = bacnet_value_alloc(return_value);
+    obj->appdata.tag = BACNET_APPLICATION_TAG_OBJECT_ID;
+    obj->appdata.type.Object_Id.type     = oid->object_type;
+    obj->appdata.type.Object_Id.instance = oid->instance;
+}
+
+static const zend_function_entry bacnet_value_methods[] = {
+    PHP_ME(Bacnet_Value, boolean,          arginfo_value_boolean,          ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, unsignedInt,      arginfo_value_unsigned_int,     ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, signedInt,        arginfo_value_signed_int,       ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, real,             arginfo_value_real,             ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, enumerated,       arginfo_value_enumerated,       ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, characterString,  arginfo_value_character_string, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, bitString,        arginfo_value_bit_string,       ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, date,             arginfo_value_date,             ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, time,             arginfo_value_time,             ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Bacnet_Value, objectIdentifier, arginfo_value_object_identifier,ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_FE_END
+};
 
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Bacnet\Client                                                         */
@@ -418,12 +708,64 @@ PHP_METHOD(Bacnet_Device, readProperty)
         return_value);
 }
 
+/* writeProperty(ObjectType, int, Property, Value, int $priority=16, ?int $arrayIndex=null): void */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_write_property, 0, 4, IS_VOID, 0)
+    ZEND_ARG_OBJ_INFO(0, objectType, Bacnet\\ObjectType, 0)
+    ZEND_ARG_TYPE_INFO(0, instance,  IS_LONG,           0)
+    ZEND_ARG_OBJ_INFO(0, property,   Bacnet\\Property,  0)
+    ZEND_ARG_OBJ_INFO(0, value,      Bacnet\\Value,     0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, priority,   IS_LONG, 0, "16")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, arrayIndex, IS_LONG, 1, "null")
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Device, writeProperty)
+{
+    zval     *ot_enum, *prop_enum, *value_zv;
+    zend_long instance, priority = 16, array_index = 0;
+    bool      aidx_null = true;
+
+    ZEND_PARSE_PARAMETERS_START(4, 6)
+        Z_PARAM_OBJECT_OF_CLASS(ot_enum,   bacnet_ce_object_type_enum)
+        Z_PARAM_LONG(instance)
+        Z_PARAM_OBJECT_OF_CLASS(prop_enum, bacnet_ce_property_enum)
+        Z_PARAM_OBJECT_OF_CLASS(value_zv,  bacnet_ce_value)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_LONG(priority)
+        Z_PARAM_LONG_OR_NULL(array_index, aidx_null)
+    ZEND_PARSE_PARAMETERS_END();
+
+    php_bacnet_device_obj *dev = Z_BACNET_DEVICE_P(ZEND_THIS);
+    if (Z_TYPE(dev->client_zval) != IS_OBJECT) {
+        zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
+        RETURN_THROWS();
+    }
+    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
+    if (!cl->client) {
+        zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
+        RETURN_THROWS();
+    }
+
+    zval *ot_b = zend_enum_fetch_case_value(Z_OBJ_P(ot_enum));
+    zval *pr_b = zend_enum_fetch_case_value(Z_OBJ_P(prop_enum));
+
+    bacnet_exec_write_property(
+        cl->client, &dev->address,
+        (BACNET_OBJECT_TYPE)Z_LVAL_P(ot_b),
+        (uint32_t)instance,
+        (BACNET_PROPERTY_ID)Z_LVAL_P(pr_b),
+        aidx_null ? BACNET_ARRAY_ALL : (uint32_t)array_index,
+        (uint8_t)(priority < 1 ? 1 : priority > 16 ? 16 : priority),
+        value_zv,
+        (uint32_t)BACNET_G(default_timeout_ms));
+}
+
 static const zend_function_entry bacnet_device_methods[] = {
-    PHP_ME(Bacnet_Device, getDeviceId,   arginfo_bacnet_device_get_device_id,   ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_Device, getAddress,    arginfo_bacnet_device_get_address,     ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_Device, getMaxApdu,    arginfo_bacnet_device_get_max_apdu,    ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_Device, getVendorId,   arginfo_bacnet_device_get_vendor_id,   ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_Device, readProperty,  arginfo_bacnet_device_read_property,   ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, getDeviceId,    arginfo_bacnet_device_get_device_id,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, getAddress,     arginfo_bacnet_device_get_address,      ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, getMaxApdu,     arginfo_bacnet_device_get_max_apdu,     ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, getVendorId,    arginfo_bacnet_device_get_vendor_id,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, readProperty,   arginfo_bacnet_device_read_property,    ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Device, writeProperty,  arginfo_bacnet_device_write_property,   ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -852,9 +1194,60 @@ PHP_METHOD(Bacnet_ObjectRef, readProperty)
         return_value);
 }
 
+/* writeProperty(Property, Value, int $priority=16, ?int $arrayIndex=null): void */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_objectref_write_property, 0, 2, IS_VOID, 0)
+    ZEND_ARG_OBJ_INFO(0, property,   Bacnet\\Property, 0)
+    ZEND_ARG_OBJ_INFO(0, value,      Bacnet\\Value,    0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, priority,   IS_LONG, 0, "16")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, arrayIndex, IS_LONG, 1, "null")
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_ObjectRef, writeProperty)
+{
+    zval     *prop_enum, *value_zv;
+    zend_long priority = 16, array_index = 0;
+    bool      aidx_null = true;
+
+    ZEND_PARSE_PARAMETERS_START(2, 4)
+        Z_PARAM_OBJECT_OF_CLASS(prop_enum, bacnet_ce_property_enum)
+        Z_PARAM_OBJECT_OF_CLASS(value_zv,  bacnet_ce_value)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_LONG(priority)
+        Z_PARAM_LONG_OR_NULL(array_index, aidx_null)
+    ZEND_PARSE_PARAMETERS_END();
+
+    php_bacnet_objectref_obj *ref = Z_BACNET_OBJREF_P(ZEND_THIS);
+    if (Z_TYPE(ref->device_zval) != IS_OBJECT) {
+        zend_throw_exception(bacnet_ce_exception, "ObjectRef has no associated device", 0);
+        RETURN_THROWS();
+    }
+    php_bacnet_device_obj *dev = Z_BACNET_DEVICE_P(&ref->device_zval);
+    if (Z_TYPE(dev->client_zval) != IS_OBJECT) {
+        zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
+        RETURN_THROWS();
+    }
+    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
+    if (!cl->client) {
+        zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
+        RETURN_THROWS();
+    }
+
+    zval *pr_b = zend_enum_fetch_case_value(Z_OBJ_P(prop_enum));
+
+    bacnet_exec_write_property(
+        cl->client, &dev->address,
+        ref->object_type, ref->instance,
+        (BACNET_PROPERTY_ID)Z_LVAL_P(pr_b),
+        aidx_null ? BACNET_ARRAY_ALL : (uint32_t)array_index,
+        (uint8_t)(priority < 1 ? 1 : priority > 16 ? 16 : priority),
+        value_zv,
+        (uint32_t)BACNET_G(default_timeout_ms));
+}
+
 static const zend_function_entry bacnet_objectref_methods[] = {
-    PHP_ME(Bacnet_ObjectRef, __construct,  arginfo_bacnet_objectref_construct,    ZEND_ACC_PUBLIC)
-    PHP_ME(Bacnet_ObjectRef, readProperty, arginfo_bacnet_objectref_read_property, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, __construct,   arginfo_bacnet_objectref_construct,     ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, readProperty,  arginfo_bacnet_objectref_read_property, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_ObjectRef, writeProperty, arginfo_bacnet_objectref_write_property,ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -1052,8 +1445,15 @@ void php_bacnet_register_classes(void)
     bacnet_ce_object_ref = zend_register_internal_class(&ce);
     bacnet_ce_object_ref->create_object = php_bacnet_objectref_create_object;
 
-    /* ── Bacnet\Value (Phase 5 stub) ─────────────────────────────────── */
+    /* ── Bacnet\Value ────────────────────────────────────────────────── */
 
-    INIT_CLASS_ENTRY(ce, "Bacnet\\Value", NULL);
+    memcpy(&php_bacnet_value_handlers,
+           zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    php_bacnet_value_handlers.offset    = XtOffsetOf(php_bacnet_value_obj, std);
+    php_bacnet_value_handlers.free_obj  = php_bacnet_value_free_object;
+    php_bacnet_value_handlers.clone_obj = NULL;
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\Value", bacnet_value_methods);
     bacnet_ce_value = zend_register_internal_class(&ce);
+    bacnet_ce_value->create_object = php_bacnet_value_create_object;
 }

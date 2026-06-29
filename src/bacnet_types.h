@@ -12,6 +12,7 @@
 #include "bacnet/bacenum.h"
 #include "bacnet/bacstr.h"
 #include "bacnet/datetime.h"
+#include "bacnet/bacapp.h"
 #include "bacnet_client.h"
 
 /*
@@ -115,6 +116,20 @@ static inline php_bacnet_time_obj *php_bacnet_time_from_obj(zend_object *obj)
 }
 #define Z_BACNET_TIME_P(zv)  php_bacnet_time_from_obj(Z_OBJ_P(zv))
 #define Z_BACNET_TIME(zv)    php_bacnet_time_from_obj(Z_OBJ(zv))
+
+/* ── Bacnet\Value — typed write value ──────────────────────────────────── */
+typedef struct {
+    BACNET_APPLICATION_DATA_VALUE appdata;  /* the typed value to write */
+    zend_object std;
+} php_bacnet_value_obj;
+
+static inline php_bacnet_value_obj *php_bacnet_value_from_obj(zend_object *obj)
+{
+    return (php_bacnet_value_obj *)
+        ((char *)obj - XtOffsetOf(php_bacnet_value_obj, std));
+}
+#define Z_BACNET_VALUE_P(zv)  php_bacnet_value_from_obj(Z_OBJ_P(zv))
+#define Z_BACNET_VALUE(zv)    php_bacnet_value_from_obj(Z_OBJ(zv))
 
 /* ── Bacnet\ObjectRef ──────────────────────────────────────────────────── */
 typedef struct {

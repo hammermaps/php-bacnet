@@ -15,6 +15,8 @@
 #include "bacnet/bacstr.h"
 #include "bacnet/datetime.h"
 
+#include "bacnet/bacapp.h"
+
 #include "../php_bacnet.h"
 #include "bacnet_types.h"
 #include "bacnet_helpers.h"
@@ -223,6 +225,21 @@ void bacapp_value_to_zval(BACNET_APPLICATION_DATA_VALUE *val, zval *zv)
  * Decode all application-data values from apdu[0..apdu_len-1].
  * Single value → scalar.  Multiple → IS_ARRAY.
  */
+/* ── php_bacnet_value_encode ─────────────────────────────────────────────
+ * Encode the BACNET_APPLICATION_DATA_VALUE stored in a Bacnet\Value PHP object
+ * into apdu[].  Returns bytes written (>0) or -1 on type mismatch.
+ */
+int php_bacnet_value_encode(zval *value_zv, uint8_t *apdu, int apdu_size)
+{
+    if (Z_TYPE_P(value_zv) != IS_OBJECT ||
+        !instanceof_function(Z_OBJCE_P(value_zv), bacnet_ce_value)) {
+        return -1;
+    }
+    php_bacnet_value_obj *val = Z_BACNET_VALUE_P(value_zv);
+    int n = bacapp_encode_application_data(apdu, &val->appdata);
+    return (n > 0 && n <= apdu_size) ? n : -1;
+}
+
 void bacapp_values_to_zval(uint8_t *apdu, unsigned apdu_len, zval *out)
 {
     zval arr;

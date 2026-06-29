@@ -33,4 +33,11 @@ void php_bacnet_date_new(BACNET_DATE *d, zval *zv);
 /* Create a Bacnet\Time from a BACNET_TIME. */
 void php_bacnet_time_new(BACNET_TIME *t, zval *zv);
 
+/*
+ * Encode a Bacnet\Value object's application data into apdu[].
+ * Returns bytes written (>0) or -1 on error.
+ * apdu must have room for at least MAX_APDU bytes.
+ */
+int php_bacnet_value_encode(zval *value_zv, uint8_t *apdu, int apdu_size);
+
 #endif /* PHP_BACNET_HELPERS_H */

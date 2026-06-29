@@ -219,6 +219,16 @@ int php_bacnet_send_and_wait(
 
         uint8_t pdu_type = apdu[0] & 0xF0;
 
+        /* Simple-ACK (WriteProperty success): byte[0]=0x20, byte[1]=invoke_id */
+        if (pdu_type == PDU_TYPE_SIMPLE_ACK) {
+            if (apdu[1] != expected_invoke_id) continue;
+            uint16_t copy_len = apdu_len;
+            if (copy_len > MAX_APDU) copy_len = MAX_APDU;
+            memcpy(out_apdu, apdu, copy_len);
+            *out_apdu_len = copy_len;
+            return 0;
+        }
+
         /* Complex-ACK: byte[0]=type|seg, byte[1]=invoke_id */
         if (pdu_type == PDU_TYPE_COMPLEX_ACK) {
             if (apdu[1] != expected_invoke_id) continue;
