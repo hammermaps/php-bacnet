@@ -147,4 +147,27 @@ static inline php_bacnet_objectref_obj *php_bacnet_objectref_from_obj(zend_objec
 #define Z_BACNET_OBJREF_P(zv)  php_bacnet_objectref_from_obj(Z_OBJ_P(zv))
 #define Z_BACNET_OBJREF(zv)    php_bacnet_objectref_from_obj(Z_OBJ(zv))
 
+/* ── Bacnet\Server ─────────────────────────────────────────────────────── */
+typedef struct {
+    php_bacnet_client *client;
+    uint32_t device_id;
+    bool auto_iam;
+    bool read_handler_set;
+    bool write_handler_set;
+    zend_fcall_info_cache read_fcc;
+    zend_fcall_info_cache write_fcc;
+    zval read_handler_zv;    /* keeps callable ref-counted */
+    zval write_handler_zv;
+    HashTable *local_objects; /* key=(type<<22|instance), IS_TRUE */
+    zend_object std;
+} php_bacnet_server_obj;
+
+static inline php_bacnet_server_obj *php_bacnet_server_from_obj(zend_object *obj)
+{
+    return (php_bacnet_server_obj *)
+        ((char *)obj - XtOffsetOf(php_bacnet_server_obj, std));
+}
+#define Z_BACNET_SERVER_P(zv)  php_bacnet_server_from_obj(Z_OBJ_P(zv))
+#define Z_BACNET_SERVER(zv)    php_bacnet_server_from_obj(Z_OBJ(zv))
+
 #endif /* PHP_BACNET_TYPES_H */

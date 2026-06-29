@@ -240,6 +240,96 @@ int php_bacnet_value_encode(zval *value_zv, uint8_t *apdu, int apdu_size)
     return (n > 0 && n <= apdu_size) ? n : -1;
 }
 
+/* ── zval_to_bacapp_value ────────────────────────────────────────────────
+ * Convert a PHP value to a BACNET_APPLICATION_DATA_VALUE for server-side
+ * ReadProperty ACK encoding.  Returns true on success.
+ */
+bool zval_to_bacapp_value(zval *zv, BACNET_APPLICATION_DATA_VALUE *val)
+{
+    memset(val, 0, sizeof(*val));
+
+    switch (Z_TYPE_P(zv)) {
+        case IS_NULL:
+            val->tag = BACNET_APPLICATION_TAG_NULL;
+            return true;
+
+        case IS_TRUE:
+            val->tag = BACNET_APPLICATION_TAG_BOOLEAN;
+            val->type.Boolean = true;
+            return true;
+
+        case IS_FALSE:
+            val->tag = BACNET_APPLICATION_TAG_BOOLEAN;
+            val->type.Boolean = false;
+            return true;
+
+        case IS_LONG:
+            if (Z_LVAL_P(zv) >= 0) {
+                val->tag = BACNET_APPLICATION_TAG_UNSIGNED_INT;
+                val->type.Unsigned_Int = (BACNET_UNSIGNED_INTEGER)Z_LVAL_P(zv);
+            } else {
+                val->tag = BACNET_APPLICATION_TAG_SIGNED_INT;
+                val->type.Signed_Int = (int32_t)Z_LVAL_P(zv);
+            }
+            return true;
+
+        case IS_DOUBLE:
+            val->tag = BACNET_APPLICATION_TAG_REAL;
+            val->type.Real = (float)Z_DVAL_P(zv);
+            return true;
+
+        case IS_STRING:
+            val->tag = BACNET_APPLICATION_TAG_CHARACTER_STRING;
+            characterstring_init_ansi(&val->type.Character_String, Z_STRVAL_P(zv));
+            return true;
+
+        case IS_OBJECT: {
+            zend_class_entry *ce = Z_OBJCE_P(zv);
+            if (instanceof_function(ce, bacnet_ce_value)) {
+                php_bacnet_value_obj *v = Z_BACNET_VALUE_P(zv);
+                *val = v->appdata;
+                return true;
+            }
+            if (instanceof_function(ce, bacnet_ce_bit_string)) {
+                php_bacnet_bitstring_obj *bs = Z_BACNET_BITSTRING_P(zv);
+                val->tag = BACNET_APPLICATION_TAG_BIT_STRING;
+                val->type.Bit_String.bits_used = bs->bits_used;
+                memcpy(val->type.Bit_String.value, bs->value, sizeof(bs->value));
+                return true;
+            }
+            if (instanceof_function(ce, bacnet_ce_date)) {
+                php_bacnet_date_obj *d = Z_BACNET_DATE_P(zv);
+                val->tag = BACNET_APPLICATION_TAG_DATE;
+                val->type.Date.year  = d->year;
+                val->type.Date.month = d->month;
+                val->type.Date.day   = d->day;
+                val->type.Date.wday  = d->weekday;
+                return true;
+            }
+            if (instanceof_function(ce, bacnet_ce_time)) {
+                php_bacnet_time_obj *t = Z_BACNET_TIME_P(zv);
+                val->tag = BACNET_APPLICATION_TAG_TIME;
+                val->type.Time.hour       = t->hour;
+                val->type.Time.min        = t->minute;
+                val->type.Time.sec        = t->second;
+                val->type.Time.hundredths = t->hundredths;
+                return true;
+            }
+            if (instanceof_function(ce, bacnet_ce_object_identifier)) {
+                php_bacnet_object_identifier_obj *oid = Z_BACNET_OID_P(zv);
+                val->tag = BACNET_APPLICATION_TAG_OBJECT_ID;
+                val->type.Object_Id.type     = oid->object_type;
+                val->type.Object_Id.instance = oid->instance;
+                return true;
+            }
+            return false;
+        }
+
+        default:
+            return false;
+    }
+}
+
 void bacapp_values_to_zval(uint8_t *apdu, unsigned apdu_len, zval *out)
 {
     zval arr;

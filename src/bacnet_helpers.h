@@ -40,4 +40,11 @@ void php_bacnet_time_new(BACNET_TIME *t, zval *zv);
  */
 int php_bacnet_value_encode(zval *value_zv, uint8_t *apdu, int apdu_size);
 
+/*
+ * Convert a PHP zval to a BACNET_APPLICATION_DATA_VALUE.
+ * Handles: null, bool, int, float, string, and BACnet objects (Value, BitString,
+ * Date, Time, ObjectIdentifier).  Returns true on success.
+ */
+bool zval_to_bacapp_value(zval *zv, BACNET_APPLICATION_DATA_VALUE *val);
+
 #endif /* PHP_BACNET_HELPERS_H */

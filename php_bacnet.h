@@ -23,6 +23,7 @@ extern zend_class_entry *bacnet_ce_time;
 extern zend_class_entry *bacnet_ce_value;
 extern zend_class_entry *bacnet_ce_object_type_enum;
 extern zend_class_entry *bacnet_ce_property_enum;
+extern zend_class_entry *bacnet_ce_server;
 extern zend_class_entry *bacnet_ce_exception;
 extern zend_class_entry *bacnet_ce_timeout_exception;
 extern zend_class_entry *bacnet_ce_device_exception;
