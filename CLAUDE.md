@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**php-bacnet** is a PHP 8.4+ C extension providing native BACnet/IP communication by wrapping the [bacnet-stack](https://github.com/bacnet-stack/bacnet-stack) C library. The extension exposes a type-safe OOP API under the `Bacnet\` namespace, supporting both client mode (device discovery, read/write properties) and server mode (respond to BACnet requests via PHP callbacks).
+**php-bacnet** is a PHP 8.4/8.5 C extension providing native BACnet/IP communication by wrapping the [bacnet-stack](https://github.com/bacnet-stack/bacnet-stack) C library. The extension exposes a type-safe OOP API under the `Bacnet\` namespace, supporting both client mode (device discovery, read/write properties) and server mode (respond to BACnet requests via PHP callbacks).
 
-The repository currently contains **planning documentation only** (10 step files). The actual C extension code does not yet exist and must be implemented step by step following the docs.
+The extension is **fully implemented**. See `docs/api-reference.md` for the complete PHP API reference and `docs/installation.md` for build and deployment instructions.
 
 ## Build Commands
 
@@ -16,16 +16,19 @@ git submodule update --init --recursive
 
 # 2. Build bacnet-stack static library
 ./scripts/build-deps.sh
-# Output: deps/bacnet-stack/build/src/libbacnet-stack.a
+# Output: deps/bacnet-stack/build/libbacnet-stack.a
 
-# 3. Build the PHP extension
-phpize
-./configure --with-bacnet
-make
+# 3. Build the PHP extension (PHP 8.5)
+phpize8.5
+./configure --with-bacnet --with-php-config=php-config8.5
+make -j$(nproc)
+
+# For PHP 8.4:
+# phpize8.4 && ./configure --with-bacnet --with-php-config=php-config8.4 && make
 
 # 4. Verify the extension loads
-php -d extension=modules/bacnet.so -m | grep bacnet
-php -d extension=modules/bacnet.so -r "phpinfo();"
+php8.5 -d extension=modules/bacnet.so -m | grep bacnet
+php8.5 -d extension=modules/bacnet.so -r "phpinfo();"
 ```
 
 ## Testing
@@ -62,11 +65,13 @@ The extension is NTS-only (no ZTS/thread-safety required). Source layout once im
 
 ### PHP API Surface (`Bacnet\` namespace)
 
-**Classes:** `Client`, `Device`, `ObjectRef`, `ObjectIdentifier`, `BitString`, `Date`, `Time`, `Value`
+**Classes:** `Client`, `Device`, `ObjectRef`, `Server`, `ObjectIdentifier`, `BitString`, `Date`, `Time`, `Value`, `ScheduleEntry`, `WeeklySchedule`, `TrendLogRecord`
 
 **Enums:** `ObjectType` (int-backed, e.g. `ANALOG_VALUE=2`, `DEVICE=8`, `SCHEDULE=17`), `Property` (int-backed, e.g. `PRESENT_VALUE=85`)
 
 **Exceptions:** `Exception` → `TimeoutException`, `DeviceException` (adds `errorClass`/`errorCode` properties)
+
+See `docs/api-reference.md` for the complete reference.
 
 ### INI Settings
 
@@ -94,20 +99,14 @@ typedef struct {
 - `php_bacnet_send_and_wait(...)` — synchronous unicast request/response with invoke-ID matching
 - `php_bacnet_broadcast_and_collect(...)` — Who-Is/I-Am broadcast collector (fixed 64-entry buffer for MVP)
 
-## Implementation Steps
+## Documentation
 
-Follow the numbered doc files in order (all under `docs/`). Each has explicit acceptance criteria (checkbox lists):
-
-1. `docs/01_project_setup_and_build_system.md` — `config.m4`, submodule, first build
-2. `docs/02_extension_skeleton_and_lifecycle.md` — module entry, INI, MINFO
-3. `docs/03_c_wrapper_and_stack_integration.md` — BIP datalink, socket loop
-4. `docs/04_oop_model_and_zend_classes.md` — all class/enum/exception registration
-5. `docs/05_read_property_and_type_mapping.md` — `readProperty()`, APDU→PHP mapping
-6. `docs/06_write_property_and_value_class.md` — `writeProperty()`, `Value` class
-7. `docs/07_who_is_and_device_discovery.md` — Who-Is broadcast, `whoIs()` API
-8. `docs/08_server_mode_and_event_loop.md` — server callbacks, event loop
-9. `docs/09_advanced_object_types_and_convenience_apis.md` — Schedule, TrendLog helpers
-10. `docs/10_testing_qa_and_release_prep.md` — PHPT suite, Valgrind, CI, `package.xml`
+| Datei | Inhalt |
+|-------|--------|
+| `docs/api-reference.md` | Vollständige PHP API-Referenz (php.net-Stil) |
+| `docs/installation.md` | Build- und Installationsanleitung |
+| `docs/01_project_setup_and_build_system.md` | Implementierungsplan Phase 1 |
+| … | Phasen 2–10 analog |
 
 ## bacnet-stack Submodule
 
@@ -119,14 +118,16 @@ The library is built as a static `-fPIC` archive via `scripts/build-deps.sh`
 (cmake, `BACDL_BIP=ON`, `BUILD_SHARED_LIBS=OFF`). Output: `deps/bacnet-stack/build/libbacnet-stack.a`
 
 **Important:** `bip_init()` requires an interface *name* (e.g. `"eth0"`), not an IP address.
-Pass `NULL` to auto-detect. Passing `"0.0.0.0"` will fail.
+Pass `NULL` to auto-detect. Passing `"0.0.0.0"` triggers auto-detection, `""` ebenfalls.
+`bip_set_broadcast_port(0xBAC0)` muss nach `bip_set_port()` gesetzt werden, damit Broadcasts
+immer Port 47808 erreichen — unabhängig vom eigenen Client-Port.
 
 ## Requirements
 
-- PHP 8.4 or 8.5 NTS (with dev headers: `php-dev`)
+- PHP 8.4 or 8.5 NTS (with dev headers: `php8.5-dev` / `php8.4-dev`)
 - `build-essential`, `cmake`
 - Linux (GCC/Autotools)
-- Valgrind (for memory checks)
+- Valgrind (for memory checks, optional)
 
 ## Skill routing
 

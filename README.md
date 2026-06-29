@@ -1,130 +1,179 @@
-# php-bacnet — BACnet Extension for PHP 8.4+
+# php-bacnet — BACnet/IP Extension for PHP 8.4+
 
-[![CI](https://img.shields.io/badge/CI-placeholder-brightgreen)](#)
-[![PHP Version](https://img.shields.io/badge/PHP-8.4%2B-blue)](#)
-[![License](https://img.shields.io/badge/License-BSD--3-blue)](#)
+[![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
+[![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.0-green)](#)
+[![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
-**php-bacnet** is a C extension for PHP 8.4 and 8.5 that provides native BACnet/IP communication. It wraps the [bacnet-stack](https://github.com/bacnet-stack/bacnet-stack) C library and exposes a full-featured, type-safe OOP API under the `Bacnet\` namespace.
+**php-bacnet** ist eine native C-Erweiterung für PHP 8.4 und 8.5, die vollständige
+BACnet/IP-Kommunikation bereitstellt. Sie kapselt die
+[bacnet-stack](https://github.com/bacnet-stack/bacnet-stack)-Bibliothek und stellt eine
+typsichere, objektorientierte API im Namensraum `Bacnet\` bereit.
 
-## Overview
+> Vollständige API-Dokumentation: **[docs/api-reference.md](./docs/api-reference.md)**  
+> Build & Installation: **[docs/installation.md](./docs/installation.md)**
 
-BACnet is a widely used building automation protocol (ASHRAE/ASHOK standard). This extension enables PHP applications to act as BACnet clients or servers on the network:
+---
 
-- **Client mode** — discover devices via Who-Is, read and write properties of any BACnet object
-- **Server mode** — expose a BACnet device via PHP callbacks, responding to Who-Is, Read-Property, Write-Property and other confirmed requests from the network
+## Überblick
 
-Complex BACnet application types (`BitString`, `Date`, `Time`, `ObjectIdentifier`) are preserved as dedicated PHP classes, ensuring that the standard BACnet data semantics are never lost or ambiguously coerced into PHP's native scalar types.
+BACnet (Building Automation and Control Networks) ist der international standardisierte
+Kommunikationsstandard für Gebäudeautomation (ASHRAE 135 / ISO 16484-5). Diese Erweiterung
+ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 
-## Supported Object Types (MVP)
+| Modus | Beschreibung |
+|-------|-------------|
+| **Client** | Geräte per Who-Is/I-Am entdecken, Eigenschaften lesen und schreiben |
+| **Server** | Eigene BACnet-Objekte bereitstellen, Callbacks für Read/Write-Anfragen |
 
-| Object Type                              | Object ID | Notes                              |
-|-------------------------------------------|-----------|-------------------------------------|
-| Device                                   | 8         | Root device information             |
-| Analog Input                             | 0         | Sensor read values                 |
-| Analog Output                            | 1         | Actuator set-points                |
-| Analog Value                             | 2         | Numeric set-points / read-back     |
-| Binary Input                             | 3         | Digital sensor states              |
-| Binary Output                            | 4         | Digital actuator states            |
-| Binary Value                             | 5         | Switch / on-off states             |
-| Multi-State Input                        | 13        | Multi-state sensor input           |
-| Multi-State Output                       | 14        | Multi-state actuator output        |
-| Multi-State Value                        | 19        | Multi-state set-points             |
-| Event Enrollment                         | 9         | Alarm/event management             |
-| Notification Class                       | 15        | Event notification configuration   |
-| Schedule                                 | 17        | Time-based scheduling              |
-| Trend Log                                | 20        | Historical data logging             |
+---
 
-## Key Features
+## Unterstützte Objekttypen
 
-- **OOP API** under the `Bacnet\` namespace — clean, testable PHP code
-- **Type-safe read/write** via the `Bacnet\Value` class (explicit BACnet Application Tag control)
-- **Complex BACnet types** — `BitString`, `Date`, `Time`, `ObjectIdentifier` preserved end-to-end
-- **Device discovery** via Who-Is / I-Am broadcast
-- **BACnet Server mode** — expose any BACnet object via PHP callbacks registered by the application
-- **Convenience APIs** — `Schedule` and `TrendLog` helper methods for common building automation use cases
-- **PHP 8.4+ and 8.5 compatible** — targets the NTS build (thread-safety not required)
-- **Embedded bacnet-stack** — fast updates when upstream bug fixes or new features land
+| Objekttyp | ID | Beschreibung |
+|-----------|----|-------------|
+| `ANALOG_INPUT` | 0 | Analoger Messwert (Sensor) |
+| `ANALOG_OUTPUT` | 1 | Analoger Ausgang (Aktor) |
+| `ANALOG_VALUE` | 2 | Analoger Softwarewert / Sollwert |
+| `BINARY_INPUT` | 3 | Binärer Eingang |
+| `BINARY_OUTPUT` | 4 | Binärer Ausgang |
+| `BINARY_VALUE` | 5 | Binärer Softwarewert |
+| `DEVICE` | 8 | Geräteobjekt |
+| `MULTI_STATE_INPUT` | 13 | Mehrwertiger Eingang |
+| `MULTI_STATE_OUTPUT` | 14 | Mehrwertiger Ausgang |
+| `MULTI_STATE_VALUE` | 19 | Mehrwertiger Softwarewert |
+| `SCHEDULE` | 17 | Zeitprogramm (WEEKLY_SCHEDULE lesen) |
+| `TREND_LOG` | 20 | Aufzeichnungsobjekt (LOG_BUFFER lesen) |
 
-## Requirements
+---
 
-- PHP 8.4 or 8.5 (NTS, dev headers)
-- Linux (GCC/Autotools)
-- `build-essential`, `cmake`
-- `bacnet-stack` (loaded as a Git submodule at `deps/bacnet-stack`)
+## Features
 
-## Quick Start
+- **Typsichere OOP-API** — `Bacnet\Client`, `Bacnet\Device`, `Bacnet\ObjectRef`, `Bacnet\Server`
+- **Explizite BACnet-Typen** — `Value::real()`, `Value::enumerated()`, `Value::characterString()` usw.
+- **Komplexe BACnet-Datentypen** — `BitString`, `Date`, `Time`, `ObjectIdentifier`
+- **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
+- **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`
+- **Komfort-API** — `ObjectRef::writePresentValue()`, `writeActive()`, `writeInactive()`
+- **INI-Konfiguration** — Port, Timeout und Interface per `php.ini` konfigurierbar
+- **Keine externen Laufzeitabhängigkeiten** — bacnet-stack wird als statische Bibliothek eingebettet
+
+---
+
+## Schnellstart
 
 ```php
 <?php
+declare(strict_types=1);
 
-use Bacnet\Client;
-use Bacnet\ObjectType;
-use Bacnet\PropertyId;
-use Bacnet\Value;
-use Bacnet\ObjectIdentifier;
+// Geräte im Netzwerk entdecken
+$client = new Bacnet\Client(interface: 'eth0', timeoutMs: 3000);
 
-// --- Device Discovery ---
-
-$client = new Client('bacnet.ip');
-
-$devices = $client->whoIs(
-    lowLimit:  0,
-    highLimit: 1000,
-    timeoutMs: 3000,
-);
-
-echo "Found ", count($devices), " device(s)\n";
-
+$devices = $client->whoIs();
 foreach ($devices as $device) {
-    echo "Device #", $device->objectIdentifier, " at ",
-         $device->address, " — ", $device->objectName, "\n";
+    printf("Gerät %d @ %s (MaxAPDU=%d)\n",
+        $device->getDeviceId(),
+        $device->getAddress(),
+        $device->getMaxApdu(),
+    );
 }
 
-// --- Read an Analog Value ---
+// Eigenschaft lesen
+[$device] = $client->whoIs(lowLimit: 1234, highLimit: 1234);
 
-$client = new Client('bacnet.ip', port: 47808);
+$temp = $device->readProperty(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+    Bacnet\Property::PRESENT_VALUE,
+);
+printf("Temperatur: %.1f °C\n", $temp);
 
-$av = $client->readProperty(
-    deviceIdentifier:  new ObjectIdentifier(ObjectType::Device, 200),
-    objectIdentifier:   new ObjectIdentifier(ObjectType::AnalogValue, 1),
-    propertyIdentifier: PropertyId::PresentValue,
+// Eigenschaft schreiben
+$device->writeProperty(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+    Bacnet\Property::PRESENT_VALUE,
+    Bacnet\Value::real(22.0),
+    priority: 16,
 );
 
-echo "AV-1 present-value: ", $av->float(), " ", $av->units(), "\n";
+// Komfort-API via ObjectRef
+$sensor = new Bacnet\ObjectRef($device, Bacnet\ObjectType::ANALOG_VALUE, 1);
+$sensor->writePresentValue(23.5);  // Typ wird automatisch erkannt
 
-// --- Write a Binary Value ---
-
-$client->writeProperty(
-    deviceIdentifier:  new ObjectIdentifier(ObjectType::Device, 200),
-    objectIdentifier:   new ObjectIdentifier(ObjectType::BinaryValue, 3),
-    propertyIdentifier: PropertyId::PresentValue,
-    value:              Value::binaryActive(),   // Application-Tag = binary-active
-    priority:           8,
-);
-
-echo "BV-3 switched to ACTIVE\n";
+$relay = new Bacnet\ObjectRef($device, Bacnet\ObjectType::BINARY_OUTPUT, 1);
+$relay->writeActive();    // ENUMERATED(1)
+$relay->writeInactive();  // ENUMERATED(0)
 ```
 
-## Documentation / Development Plan
+---
 
-The project is built step-by-step. Each step is documented for a coding agent:
+## Installation
 
-- [Step 1 — Project Setup & Build System](./docs/01_project_setup_and_build_system.md)
-- [Step 2 — Extension Skeleton & Lifecycle](./docs/02_extension_skeleton_and_lifecycle.md)
-- [Step 3 — C-Wrapper & Stack Integration](./docs/03_c_wrapper_and_stack_integration.md)
-- [Step 4 — OOP Model & Zend Classes](./docs/04_oop_model_and_zend_classes.md)
-- [Step 5 — ReadProperty & Type Mapping](./docs/05_read_property_and_type_mapping.md)
-- [Step 6 — WriteProperty & Value Class](./docs/06_write_property_and_value_class.md)
-- [Step 7 — Who-Is & Device Discovery](./docs/07_who_is_and_device_discovery.md)
-- [Step 8 — Server Mode & Event Loop](./docs/08_server_mode_and_event_loop.md)
-- [Step 9 — Advanced Object Types & Convenience APIs](./docs/09_advanced_object_types_and_convenience_apis.md)
-- [Step 10 — Testing, QA & Release Prep](./docs/10_testing_qa_and_release_prep.md)
+Vollständige Anleitung: **[docs/installation.md](./docs/installation.md)**
 
-## License
+```bash
+# Submodul initialisieren und bacnet-stack bauen
+git submodule update --init --recursive
+./scripts/build-deps.sh
 
-BSD-3-Clause — see [LICENSE](./LICENSE). This license is compatible with the [bacnet-stack BSD-3 license](https://github.com/bacnet-stack/bacnet-stack/blob/master/LICENSE).
+# Extension bauen (PHP 8.5)
+phpize8.5
+./configure --with-bacnet --with-php-config=php-config8.5
+make -j$(nproc)
 
-## Acknowledgments
+# Extension dauerhaft aktivieren
+sudo cp modules/bacnet.so $(php-config8.5 --extension-dir)/
+echo "extension=bacnet.so" | sudo tee /etc/php/8.5/cli/conf.d/30-bacnet.ini
+php8.5 -m | grep bacnet
+```
 
-- **[bacnet-stack](https://github.com/bacnet-stack/bacnet-stack)** — embedded BACnet protocol stack
-- **[PHP Internals Book](https://www.phpinternalsbook.com/php7/extensions_design.html)** — foundational guide for PHP extension development
+---
+
+## Konfiguration (php.ini)
+
+| Direktive | Standard | Beschreibung |
+|-----------|---------|-------------|
+| `bacnet.default_port` | `47808` | UDP-Port (Standard-BACnet-Port = 0xBAC0) |
+| `bacnet.default_timeout_ms` | `3000` | Request-Timeout in Millisekunden |
+| `bacnet.default_interface` | `0.0.0.0` | Interface-Name (`"eth0"`) oder Auto-Erkennung |
+
+```ini
+extension=bacnet.so
+bacnet.default_port       = 47808
+bacnet.default_timeout_ms = 3000
+bacnet.default_interface  = eth0
+```
+
+---
+
+## Dokumentation
+
+| Datei | Beschreibung |
+|-------|-------------|
+| [docs/api-reference.md](./docs/api-reference.md) | Vollständige PHP API-Referenz (php.net-Stil) |
+| [docs/installation.md](./docs/installation.md) | Build- und Installationsanleitung |
+| [stubs/bacnet.stub.php](./stubs/bacnet.stub.php) | IDE/PHPStan Stubs |
+| [CHANGELOG.md](./CHANGELOG.md) | Versionshistorie |
+
+---
+
+## Anforderungen
+
+- PHP **8.4** oder **8.5** — NTS-Build (Non-Thread-Safe), mit Dev-Headers (`php8.5-dev`)
+- Linux (GCC, Autotools)
+- `build-essential`, `cmake` ≥ 3.16
+- Netzwerkzugang auf UDP-Port 47808 (BACnet/IP)
+
+---
+
+## Lizenz
+
+BSD-3-Clause — siehe [LICENSE](./LICENSE).
+Kompatibel mit der [bacnet-stack BSD-3-Lizenz](https://github.com/bacnet-stack/bacnet-stack/blob/master/LICENSE).
+
+---
+
+## Danksagungen
+
+- **[bacnet-stack](https://github.com/bacnet-stack/bacnet-stack)** — eingebetteter BACnet-Protokoll-Stack
+- **[PHP Internals Book](https://www.phpinternalsbook.com/)** — Grundlagenwerk für PHP-Extension-Entwicklung
