@@ -3,6 +3,17 @@
 Diese Anleitung beschreibt den vollständigen Weg von den Quellen bis zur laufenden
 PHP-Erweiterung in verschiedenen PHP-Laufzeitumgebungen (CLI, PHP-FPM, Apache mod_php).
 
+LMDB ist eine verpflichtende Build-Abhängigkeit. Unter Debian/Ubuntu:
+
+```bash
+apt-get install liblmdb-dev
+install -d -m 0750 -o www-data -g www-data /var/cache/php-bacnet
+```
+
+Der POSIX-Shared-Memory-L1 ist immer die erste Cache-Ebene; LMDB ist das
+Standard-L2. Fehlt das Verzeichnis, läuft die Erweiterung fail-open nur mit L1.
+Alle Optionen stehen in [client-cache.md](client-cache.md).
+
 ---
 
 ## Inhaltsverzeichnis

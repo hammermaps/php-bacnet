@@ -53,12 +53,15 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 - **Explizite BACnet-Typen** — `Value::real()`, `Value::enumerated()`, `Value::characterString()` usw.
 - **Komplexe BACnet-Datentypen** — `BitString`, `Date`, `Time`, `ObjectIdentifier`
 - **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
+- **Mehrstufiger Client-Cache** — POSIX Shared Memory als fester L1, LMDB als
+  persistentes Standard-L2 und austauschbare PHP-Backends
 - **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`
 - **Server-Schutz** — ACLs, Token-Buckets, temporäre Quellsperren und Write-Deduplizierung
 - **Mixed-Modus** — Server und ausgehende Client-Anfragen über einen gemeinsamen UDP-Socket
 - **Komfort-API** — `ObjectRef::writePresentValue()`, `writeActive()`, `writeInactive()`
 - **INI-Konfiguration** — Port, Timeout, Interface und Server-Sicherheitsgrenzen per `php.ini`
-- **Keine externen Laufzeitabhängigkeiten** — bacnet-stack wird als statische Bibliothek eingebettet
+- **Kleine Laufzeitbasis** — bacnet-stack wird statisch eingebettet; LMDB stellt
+  die persistente Cache-Ebene bereit
 
 ---
 
@@ -107,6 +110,24 @@ $relay = new Bacnet\ObjectRef($device, Bacnet\ObjectType::BINARY_OUTPUT, 1);
 $relay->writeActive();    // ENUMERATED(1)
 $relay->writeInactive();  // ENUMERATED(0)
 ```
+
+### Client-Cache
+
+Metadaten, Objektlisten und Discovery-Ergebnisse werden standardmäßig zuerst
+aus einem zwischen Prozessen geteilten C-Cache gelesen und zusätzlich in LMDB
+persistiert. `/var/cache/php-bacnet` muss für den PHP-Prozess existieren und
+beschreibbar sein. Dynamische Zustände und negative Ergebnisse bleiben zunächst
+ungecached.
+
+```php
+$client->setCacheOptions(['state_enabled' => true, 'state_ttl' => 1.0]);
+$freshDevices = $client->whoIs(refresh: true);
+$stats = $client->getCacheStats();
+```
+
+Ein beliebiges `Bacnet\CacheBackendInterface` kann LMDB pro Instanz ersetzen,
+beispielsweise für Redis oder Memcached. Siehe
+[Client-Cache](docs/client-cache.md).
 
 ---
 

@@ -4,6 +4,12 @@ Alle Beispiele benötigen die geladene Extension und direkten Zugriff auf das
 BACnet/IP-Netz. Pro Prozess darf nur ein `Client`, `Server` oder `MixedServer`
 existieren.
 
+`cache_backend.php` zeigt, wie ein beliebiges PHP-Backend LMDB als L2 ersetzt.
+`redis_cache_backend.php` implementiert dasselbe Interface beispielhaft mit
+`ext-redis`, ohne Redis zur Abhängigkeit der Extension zu machen.
+Ohne Override verwenden Client und MixedServer POSIX Shared Memory als L1 und
+LMDB als persistentes Standard-L2.
+
 ## Abgesicherter Server
 
 `security_server.php` zeigt eine VLAN-Allowlist, eine optionale Denylist,

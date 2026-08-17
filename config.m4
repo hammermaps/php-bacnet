@@ -23,6 +23,13 @@ if test "$PHP_BACNET" != "no"; then
 
   PHP_ADD_INCLUDE($BACNET_SRC_DIR)
   PHP_ADD_LIBRARY_WITH_PATH(bacnet-stack, $BACNET_BUILD_DIR, BACNET_SHARED_LIBADD)
+  AC_CHECK_HEADER([lmdb.h], [], [AC_MSG_ERROR([lmdb.h not found; install liblmdb-dev])])
+  PHP_CHECK_LIBRARY([lmdb], [mdb_env_create], [
+    PHP_ADD_LIBRARY([lmdb],, [BACNET_SHARED_LIBADD])
+  ], [
+    AC_MSG_ERROR([liblmdb not found; install liblmdb-dev])
+  ])
+  PHP_ADD_LIBRARY([pthread],, [BACNET_SHARED_LIBADD])
   PHP_SUBST(BACNET_SHARED_LIBADD)
 
   EXTRA_CFLAGS="-DBACDL_BIP -DBACNET_STACK_DEPRECATED_DISABLE"
@@ -32,6 +39,7 @@ if test "$PHP_BACNET" != "no"; then
      src/bacnet_classes.c
      src/bacnet_types.c
      src/bacnet_helpers.c
+     src/bacnet_cache.c
      src/bacnet_security.c],
     $ext_shared,
     ,

@@ -54,6 +54,47 @@ PHP_INI_BEGIN()
         OnUpdateReal, server_source_ttl, zend_bacnet_globals, bacnet_globals)
     STD_PHP_INI_ENTRY("bacnet.server_log_interval_seconds", "60", PHP_INI_ALL,
         OnUpdateReal, server_log_interval, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_BOOLEAN("bacnet.cache_enabled", "1", PHP_INI_ALL,
+        OnUpdateBool, cache_enabled, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_l2_backend", "lmdb", PHP_INI_ALL,
+        OnUpdateString, cache_l2_backend, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_namespace", "", PHP_INI_ALL,
+        OnUpdateString, cache_namespace, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_lmdb_path", "/var/cache/php-bacnet", PHP_INI_ALL,
+        OnUpdateString, cache_lmdb_path, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_shm_name", "", PHP_INI_ALL,
+        OnUpdateString, cache_shm_name, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_l1_max_bytes", "16777216", PHP_INI_ALL,
+        OnUpdateLong, cache_l1_max_bytes, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_l2_max_bytes", "16777216", PHP_INI_ALL,
+        OnUpdateLong, cache_l2_max_bytes, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_lmdb_map_size", "67108864", PHP_INI_ALL,
+        OnUpdateLong, cache_lmdb_map_size, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_coherence_interval_ms", "1000", PHP_INI_ALL,
+        OnUpdateLong, cache_coherence_interval_ms, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_log_interval_seconds", "60", PHP_INI_ALL,
+        OnUpdateReal, cache_log_interval, zend_bacnet_globals, bacnet_globals)
+#define BACNET_CACHE_PARTITION_INI(name, field, enabled, ttl, max_entries) \
+    STD_PHP_INI_BOOLEAN("bacnet.cache_" name "_enabled", enabled, PHP_INI_ALL, \
+        OnUpdateBool, cache_##field##_enabled, zend_bacnet_globals, bacnet_globals) \
+    STD_PHP_INI_ENTRY("bacnet.cache_" name "_ttl_seconds", ttl, PHP_INI_ALL, \
+        OnUpdateReal, cache_##field##_ttl, zend_bacnet_globals, bacnet_globals) \
+    STD_PHP_INI_ENTRY("bacnet.cache_" name "_max_entries", max_entries, PHP_INI_ALL, \
+        OnUpdateLong, cache_##field##_max_entries, zend_bacnet_globals, bacnet_globals)
+    BACNET_CACHE_PARTITION_INI("state", state, "0", "1", "4096")
+    BACNET_CACHE_PARTITION_INI("object", object, "1", "300", "4096")
+    BACNET_CACHE_PARTITION_INI("object_list", object_list, "1", "300", "256")
+    BACNET_CACHE_PARTITION_INI("device", device, "1", "60", "256")
+    BACNET_CACHE_PARTITION_INI("ip", ip, "1", "300", "256")
+#undef BACNET_CACHE_PARTITION_INI
+    STD_PHP_INI_BOOLEAN("bacnet.cache_negative_enabled", "0", PHP_INI_ALL,
+        OnUpdateBool, cache_negative_enabled, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_negative_whois_ttl_seconds", "2", PHP_INI_ALL,
+        OnUpdateReal, cache_negative_whois_ttl, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_negative_read_ttl_seconds", "1", PHP_INI_ALL,
+        OnUpdateReal, cache_negative_read_ttl, zend_bacnet_globals, bacnet_globals)
+    STD_PHP_INI_ENTRY("bacnet.cache_negative_max_entries", "1024", PHP_INI_ALL,
+        OnUpdateLong, cache_negative_max_entries, zend_bacnet_globals, bacnet_globals)
 PHP_INI_END()
 
 static void php_bacnet_init_globals(zend_bacnet_globals *bacnet_globals)
@@ -79,6 +120,35 @@ static void php_bacnet_init_globals(zend_bacnet_globals *bacnet_globals)
     bacnet_globals->server_max_sources = 1024;
     bacnet_globals->server_source_ttl = 300;
     bacnet_globals->server_log_interval = 60;
+    bacnet_globals->cache_enabled = true;
+    bacnet_globals->cache_l2_backend = NULL;
+    bacnet_globals->cache_namespace = NULL;
+    bacnet_globals->cache_lmdb_path = NULL;
+    bacnet_globals->cache_shm_name = NULL;
+    bacnet_globals->cache_l1_max_bytes = 16777216;
+    bacnet_globals->cache_l2_max_bytes = 16777216;
+    bacnet_globals->cache_lmdb_map_size = 67108864;
+    bacnet_globals->cache_coherence_interval_ms = 1000;
+    bacnet_globals->cache_log_interval = 60;
+    bacnet_globals->cache_state_enabled = false;
+    bacnet_globals->cache_state_ttl = 1;
+    bacnet_globals->cache_state_max_entries = 4096;
+    bacnet_globals->cache_object_enabled = true;
+    bacnet_globals->cache_object_ttl = 300;
+    bacnet_globals->cache_object_max_entries = 4096;
+    bacnet_globals->cache_object_list_enabled = true;
+    bacnet_globals->cache_object_list_ttl = 300;
+    bacnet_globals->cache_object_list_max_entries = 256;
+    bacnet_globals->cache_device_enabled = true;
+    bacnet_globals->cache_device_ttl = 60;
+    bacnet_globals->cache_device_max_entries = 256;
+    bacnet_globals->cache_ip_enabled = true;
+    bacnet_globals->cache_ip_ttl = 300;
+    bacnet_globals->cache_ip_max_entries = 256;
+    bacnet_globals->cache_negative_enabled = false;
+    bacnet_globals->cache_negative_whois_ttl = 2;
+    bacnet_globals->cache_negative_read_ttl = 1;
+    bacnet_globals->cache_negative_max_entries = 1024;
     bacnet_globals->next_invoke_id     = 1;
     bacnet_globals->client_initialized = 0;
 }

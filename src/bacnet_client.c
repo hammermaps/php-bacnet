@@ -25,6 +25,7 @@
 #include "bacnet/datalink/bip.h"
 
 #include "bacnet_client.h"
+#include "bacnet_cache.h"
 
 /* Milliseconds since epoch, monotonic */
 static uint64_t ms_now(void)
@@ -94,9 +95,18 @@ php_bacnet_client *php_bacnet_client_create(
     return client;
 }
 
+void php_bacnet_client_enable_cache(php_bacnet_client *client)
+{
+    if (client && !client->cache) {
+        client->cache = php_bacnet_cache_create(client->iface, client->port);
+    }
+}
+
 void php_bacnet_client_destroy(php_bacnet_client *client)
 {
     if (!client) return;
+    php_bacnet_cache_destroy(client->cache);
+    client->cache = NULL;
     if (client->initialized) {
         bip_cleanup();
         client->initialized = false;

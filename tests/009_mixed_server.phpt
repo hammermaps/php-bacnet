@@ -23,7 +23,7 @@ assert(method_exists(Bacnet\MixedServer::class, 'getPendingPduCount'));
 
 $method = new ReflectionMethod(Bacnet\MixedServer::class, 'whoIs');
 assert($method->getNumberOfRequiredParameters() === 0);
-assert($method->getNumberOfParameters() === 3);
+assert($method->getNumberOfParameters() === 4);
 
 $uninitialized = (new ReflectionClass(Bacnet\MixedServer::class))
     ->newInstanceWithoutConstructor();

@@ -1,5 +1,17 @@
 # FAQ
 
+## Wo werden Client-Daten gecacht?
+
+L1 liegt immer in einem nativen POSIX-Shared-Memory-Segment und ist damit für
+PHP-Worker desselben Hosts gemeinsam. L2 ist standardmäßig LMDB unter
+`/var/cache/php-bacnet`. `setCacheBackend()` kann LMDB pro Instanz durch jedes
+Objekt mit `Bacnet\CacheBackendInterface` ersetzen.
+
+## Wie erzwinge ich einen echten BACnet-Netzwerkzugriff?
+
+Verwende `refresh: true` bei `whoIs()` oder als letzten Parameter von
+`readProperty()`. Ein Netzwerkfehler liefert dann keinen alten Cachewert.
+
 ## Welche PHP-Versionen werden unterstützt?
 
 Die Erweiterung benötigt PHP 8.4 oder 8.5 als NTS-Build unter Linux. Sie muss mit
