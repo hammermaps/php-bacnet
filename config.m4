@@ -31,7 +31,8 @@ if test "$PHP_BACNET" != "no"; then
      src/bacnet_client.c
      src/bacnet_classes.c
      src/bacnet_types.c
-     src/bacnet_helpers.c],
+     src/bacnet_helpers.c
+     src/bacnet_security.c],
     $ext_shared,
     ,
     $EXTRA_CFLAGS)

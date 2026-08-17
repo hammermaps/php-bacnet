@@ -244,7 +244,8 @@ namespace Bacnet {
         ) {}
 
         /**
-         * Broadcast Who-Is and collect I-Am responses.
+         * Broadcast Who-Is and collect I-Am responses. An empty first discovery
+         * is retried once after a short delay.
          *
          * @param int|null $lowLimit   Device instance lower bound (null = 0).
          * @param int|null $highLimit  Device instance upper bound (null = 4194303).
@@ -412,11 +413,62 @@ namespace Bacnet {
         public function setAutoIAm(bool $enabled): void {}
 
         /**
+         * Override security settings for this instance. Unknown keys and invalid
+         * values throw ValueError. Existing token and block state is reset.
+         * Unspecified options retain their current values.
+         *
+         * @param array<string, bool|int|float|string[]> $options
+         * @throws \ValueError
+         */
+        public function setSecurityOptions(array $options): void {}
+
+        /**
+         * Return all effective settings after defaults, INI and instance overrides.
+         *
+         * @return array<string, bool|int|float|string[]>
+         */
+        public function getSecurityOptions(): array {}
+
+        /**
+         * Return cumulative security counters and optionally bounded per-source diagnostics.
+         * Reset returns the current snapshot before clearing cumulative counters; token and
+         * block state is retained.
+         *
+         * @return array<string, int|array<string, array<string, int|float|bool>>>
+         */
+        public function getSecurityStats(
+            bool $includeSources = false,
+            bool $reset = false,
+        ): array {}
+
+        /**
          * Process at most one pending PDU from the socket (non-blocking by default).
          *
          * @param int $timeoutMs  Maximum time to block waiting for a PDU, in milliseconds.
          *                        Use 0 for non-blocking, or a positive value for a blocking poll.
          */
         public function poll(int $timeoutMs = 0): void {}
+    }
+
+    /**
+     * BACnet/IP server and client sharing one UDP socket.
+     * Server methods are inherited; discovered Device objects use the same socket.
+     */
+    class MixedServer extends Server
+    {
+        /**
+         * Broadcast Who-Is and collect external I-Am responses.
+         * The MixedServer's own device ID is excluded.
+         *
+         * @return Device[]
+         */
+        public function whoIs(
+            ?int $lowLimit  = null,
+            ?int $highLimit = null,
+            ?int $timeoutMs = null,
+        ): array {}
+
+        /** Number of server PDUs buffered during synchronous client calls. */
+        public function getPendingPduCount(): int {}
     }
 }

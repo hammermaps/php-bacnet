@@ -24,6 +24,7 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 |-------|-------------|
 | **Client** | Geräte per Who-Is/I-Am entdecken, Eigenschaften lesen und schreiben |
 | **Server** | Eigene BACnet-Objekte bereitstellen, Callbacks für Read/Write-Anfragen |
+| **Mixed** | Server und Client über einen gemeinsamen UDP-Socket betreiben |
 
 ---
 
@@ -48,13 +49,15 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 
 ## Features
 
-- **Typsichere OOP-API** — `Bacnet\Client`, `Bacnet\Device`, `Bacnet\ObjectRef`, `Bacnet\Server`
+- **Typsichere OOP-API** — `Bacnet\Client`, `Bacnet\Device`, `Bacnet\ObjectRef`, `Bacnet\Server`, `Bacnet\MixedServer`
 - **Explizite BACnet-Typen** — `Value::real()`, `Value::enumerated()`, `Value::characterString()` usw.
 - **Komplexe BACnet-Datentypen** — `BitString`, `Date`, `Time`, `ObjectIdentifier`
 - **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
 - **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`
+- **Server-Schutz** — ACLs, Token-Buckets, temporäre Quellsperren und Write-Deduplizierung
+- **Mixed-Modus** — Server und ausgehende Client-Anfragen über einen gemeinsamen UDP-Socket
 - **Komfort-API** — `ObjectRef::writePresentValue()`, `writeActive()`, `writeInactive()`
-- **INI-Konfiguration** — Port, Timeout und Interface per `php.ini` konfigurierbar
+- **INI-Konfiguration** — Port, Timeout, Interface und Server-Sicherheitsgrenzen per `php.ini`
 - **Keine externen Laufzeitabhängigkeiten** — bacnet-stack wird als statische Bibliothek eingebettet
 
 ---
@@ -107,6 +110,77 @@ $relay->writeInactive();  // ENUMERATED(0)
 
 ---
 
+## Mixed-Modus
+
+Ein `MixedServer` stellt lokale Objekte bereit und kann über denselben Socket
+andere Geräte entdecken, lesen und schreiben:
+
+```php
+$mixed = new Bacnet\MixedServer(5, 'net3', 47808);
+$mixed->addLocalObject(new Bacnet\ObjectIdentifier(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+));
+
+[$device] = $mixed->whoIs(200, 200, 1000);
+$value = $device->readProperty(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    10110,
+    Bacnet\Property::PRESENT_VALUE,
+);
+
+while (true) {
+    $mixed->poll(100);
+}
+```
+
+Während synchroner Client-Aufrufe werden eingehende Server-PDUs gepuffert und
+anschließend von `poll()` verarbeitet. Details und Event-Loop-Muster stehen in
+**[docs/mixed-mode.md](./docs/mixed-mode.md)**.
+
+Ausführbare Beispiele:
+
+```bash
+php examples/mixed_daemon.php
+php examples/mixed_read.php 200 analog_value 10110 present_value
+php examples/security_server.php
+```
+
+---
+
+## Server-Sicherheit
+
+`Server` und `MixedServer` schützen eingehende Pakete standardmäßig durch
+globale und quellbezogene Token-Buckets, eigene Who-Is-/WriteProperty-Limits,
+temporäre Quellsperren, IPv4-CIDR-ACLs und die Deduplizierung erfolgreicher
+Writes. Beim MixedServer findet die Prüfung bereits vor dessen 32-PDU-Queue
+statt.
+
+```php
+$server = new Bacnet\Server(9001, 'eth0', 47808);
+$server->setSecurityOptions([
+    'allowed_networks' => ['192.168.202.0/24'],
+    'denied_networks' => ['192.168.202.250/32'],
+    'per_source_rate' => 50,
+    'write_rate' => 5,
+]);
+
+$effective = $server->getSecurityOptions();
+$stats = $server->getSecurityStats(includeSources: false, reset: false);
+```
+
+Deny hat Vorrang; eine leere Allowlist erlaubt alle IPv4-Quellen. Änderungen
+per `setSecurityOptions()` wirken sofort und setzen laufende Token-/Blockzustände
+zurück, behalten aber kumulierte Statistiken. Ungültige Schlüssel oder Werte
+erzeugen `ValueError`.
+
+Die Mechanismen ersetzen keine Netzsegmentierung: Klassisches BACnet/IP bleibt
+unverschlüsselt und unauthentifiziert. VLAN und Firewall sind weiterhin die
+primäre Sicherheitsgrenze. Alle Optionen, Statistiken und Betriebsbeispiele
+stehen in **[docs/server-security.md](./docs/server-security.md)**.
+
+---
+
 ## Installation
 
 Vollständige Anleitung: **[docs/installation.md](./docs/installation.md)**
@@ -136,13 +210,29 @@ php8.5 -m | grep bacnet
 | `bacnet.default_port` | `47808` | UDP-Port (Standard-BACnet-Port = 0xBAC0) |
 | `bacnet.default_timeout_ms` | `3000` | Request-Timeout in Millisekunden |
 | `bacnet.default_interface` | `0.0.0.0` | Interface-Name (`"eth0"`) oder Auto-Erkennung |
+| `bacnet.server_security_enabled` | `1` | Gemeinsame Schutzschicht aktivieren |
+| `bacnet.server_per_source_rate` / `bacnet.server_per_source_burst` | `50` / `100` | Paketlimit je Quell-IP |
+| `bacnet.server_global_rate` / `bacnet.server_global_burst` | `500` / `1000` | Globales Paketlimit |
+| `bacnet.server_who_is_rate` / `bacnet.server_who_is_burst` | `2` / `5` | Who-Is-Limit je Quelle |
+| `bacnet.server_write_rate` / `bacnet.server_write_burst` | `5` / `10` | WriteProperty-Limit je Quelle |
+| `bacnet.server_flood_violations` / `bacnet.server_flood_window_seconds` | `20` / `10` | Verletzungen und Zählfenster bis zur Sperre |
+| `bacnet.server_block_duration_seconds` | `60` | Dauer einer Quellsperre |
+| `bacnet.server_duplicate_window_seconds` | `5` | Deduplizierungsfenster erfolgreicher Writes |
+| `bacnet.server_allowed_networks` / `bacnet.server_denied_networks` | leer / leer | Kommagetrennte IPv4-CIDRs |
+| `bacnet.server_max_sources` / `bacnet.server_source_ttl_seconds` | `1024` / `300` | Größe und Ablauf der Quelltabelle |
+| `bacnet.server_log_interval_seconds` | `60` | Mindestabstand aggregierter Warnungen |
 
 ```ini
 extension=bacnet.so
 bacnet.default_port       = 47808
 bacnet.default_timeout_ms = 3000
 bacnet.default_interface  = eth0
+bacnet.server_allowed_networks = 192.168.202.0/24
+bacnet.server_denied_networks = 192.168.202.250/32
 ```
+
+Die vollständige Zuordnung zwischen INI-Direktiven und PHP-Optionsschlüsseln
+steht im [Sicherheitsleitfaden](./docs/server-security.md#standardwerte).
 
 ---
 
@@ -152,6 +242,10 @@ bacnet.default_interface  = eth0
 |-------|-------------|
 | [docs/api-reference.md](./docs/api-reference.md) | Vollständige PHP API-Referenz (php.net-Stil) |
 | [docs/installation.md](./docs/installation.md) | Build- und Installationsanleitung |
+| [docs/faq.md](./docs/faq.md) | Häufige Fragen zu Installation, Discovery und Fehlersuche |
+| [docs/mixed-mode.md](./docs/mixed-mode.md) | Architektur, Queue und Daemon-Betrieb des Mixed-Modus |
+| [docs/server-security.md](./docs/server-security.md) | ACLs, Rate-Limits, Sperren, Deduplizierung und Statistiken |
+| [examples/README.md](./examples/README.md) | Ausführbare Client-/Server-Demos |
 | [stubs/bacnet.stub.php](./stubs/bacnet.stub.php) | IDE/PHPStan Stubs |
 | [CHANGELOG.md](./CHANGELOG.md) | Versionshistorie |
 

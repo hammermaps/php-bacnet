@@ -16,6 +16,7 @@
    - [Bacnet\Device](#bacnetdevice)
    - [Bacnet\ObjectRef](#bacnetobjectref)
    - [Bacnet\Server](#bacnetserver)
+   - [Bacnet\MixedServer](#bacnetmixedserver)
    - [Bacnet\Value](#bacnetvalue)
    - [Bacnet\BitString](#bacnetbitstring)
    - [Bacnet\Date](#bacnetdate)
@@ -97,6 +98,24 @@ Alle Einstellungen gelten per Prozess und können zur Laufzeit via `ini_set()` g
 | `bacnet.default_port` | `47808` | UDP-Port für den BACnet/IP-Socket. Standard-BACnet-Port ist `0xBAC0` = 47808. |
 | `bacnet.default_timeout_ms` | `3000` | Wartezeit für Einzelanfragen in Millisekunden. |
 | `bacnet.default_interface` | `"0.0.0.0"` | Netzwerk-Interface-Name (z. B. `"eth0"`). `"0.0.0.0"` bedeutet Auto-Erkennung. |
+| `bacnet.server_security_enabled` | `1` | Schutzschicht für Server und MixedServer. |
+| `bacnet.server_per_source_rate` | `50` | Pakete pro Sekunde je Quell-IP. |
+| `bacnet.server_per_source_burst` | `100` | Token-Kapazität je Quell-IP. |
+| `bacnet.server_global_rate` | `500` | Pakete pro Sekunde über alle Quellen. |
+| `bacnet.server_global_burst` | `1000` | Globale Token-Kapazität. |
+| `bacnet.server_who_is_rate` | `2` | Who-Is-Pakete pro Sekunde je Quelle. |
+| `bacnet.server_who_is_burst` | `5` | Who-Is-Token-Kapazität je Quelle. |
+| `bacnet.server_write_rate` | `5` | WriteProperty-Pakete pro Sekunde je Quelle. |
+| `bacnet.server_write_burst` | `10` | WriteProperty-Token-Kapazität je Quelle. |
+| `bacnet.server_flood_violations` | `20` | Limitverletzungen bis zur Sperre. |
+| `bacnet.server_flood_window_seconds` | `10` | Zählfenster der Limitverletzungen. |
+| `bacnet.server_block_duration_seconds` | `60` | Dauer einer Quellsperre. |
+| `bacnet.server_duplicate_window_seconds` | `5` | Write-Deduplizierungsfenster. |
+| `bacnet.server_allowed_networks` | leer | Kommagetrennte erlaubte IPv4-CIDRs. |
+| `bacnet.server_denied_networks` | leer | Kommagetrennte gesperrte IPv4-CIDRs. |
+| `bacnet.server_max_sources` | `1024` | Maximale Anzahl Quellzustände. |
+| `bacnet.server_source_ttl_seconds` | `300` | Ablaufzeit inaktiver Quellzustände. |
+| `bacnet.server_log_interval_seconds` | `60` | Abstand aggregierter Warnungen. |
 
 ```ini
 ; /etc/php/8.5/cli/conf.d/30-bacnet.ini
@@ -104,11 +123,15 @@ extension=bacnet.so
 bacnet.default_port       = 47808
 bacnet.default_timeout_ms = 3000
 bacnet.default_interface  = 0.0.0.0
+bacnet.server_allowed_networks = 192.168.202.0/24
 ```
 
 > **Hinweis:** `bip_init()` erwartet einen Interface-*Namen* (z. B. `"eth0"`), keine IP-Adresse.
 > Das Übergeben von `"0.0.0.0"` führt zu einer automatischen Erkennung des ersten
 > Nicht-Loopback-Interfaces.
+
+Die vollständigen Sicherheitssemantiken, PHP-Optionsnamen und Statistikfelder
+beschreibt [Server-Sicherheit](./server-security.md).
 
 ---
 
@@ -244,6 +267,8 @@ Sendet einen **Who-Is**-Broadcast und sammelt alle eingehenden **I-Am**-Antworte
 
 - `whoIs()` wartet immer die volle `$timeoutMs`-Zeit, auch wenn Geräte früher antworten,
   um alle Geräte im Netzwerk zu erfassen.
+- Wenn der erste Durchlauf keine Geräte findet, sendet die Erweiterung nach 250 ms
+  automatisch einen zweiten Who-Is-Broadcast.
 - Für eine gezielte Suche nach einem einzelnen Gerät können `$lowLimit` und `$highLimit`
   auf dieselbe Geräteinstanz gesetzt werden.
 - Duplikate (mehrere I-Am vom selben Gerät) werden automatisch gefiltert.
@@ -810,6 +835,79 @@ Standardmäßig aktiviert.
 
 ---
 
+#### Sicherheitsoptionen und Statistiken
+
+```php
+public function setSecurityOptions(array $options): void
+public function getSecurityOptions(): array
+public function getSecurityStats(bool $includeSources = false, bool $reset = false): array
+```
+
+Server-Schutz ist standardmäßig aktiv. Die effektive Reihenfolge lautet:
+eingebaute Defaults, aktuelle `bacnet.server_*`-INI-Werte beim Konstruktor und
+anschließend partielle Instanz-Overrides. Ein Override wirkt sofort und setzt
+Token-, Sperr- und Duplicate-Zustände zurück; kumulierte Statistiken bleiben
+erhalten. Unbekannte Schlüssel, nicht positive Grenzwerte und ungültige
+IPv4-CIDRs lösen `ValueError` aus.
+
+```php
+$server->setSecurityOptions([
+    'per_source_rate' => 50,
+    'write_rate' => 5,
+    'allowed_networks' => ['192.168.202.0/24'],
+    'denied_networks' => ['192.168.202.250/32'],
+]);
+
+$options = $server->getSecurityOptions();
+$stats = $server->getSecurityStats(includeSources: false, reset: false);
+```
+
+| Optionsschlüssel | Typ | Standard |
+|---|---|---:|
+| `enabled` | `bool` | `true` |
+| `per_source_rate` / `per_source_burst` | `int|float` / `int` | `50` / `100` |
+| `global_rate` / `global_burst` | `int|float` / `int` | `500` / `1000` |
+| `who_is_rate` / `who_is_burst` | `int|float` / `int` | `2` / `5` |
+| `write_rate` / `write_burst` | `int|float` / `int` | `5` / `10` |
+| `flood_violations` | `int` | `20` |
+| `flood_window_seconds` | `int|float` | `10` |
+| `block_duration_seconds` | `int|float` | `60` |
+| `duplicate_window_seconds` | `int|float` | `5` |
+| `allowed_networks` | `string[]` | `[]` |
+| `denied_networks` | `string[]` | `[]` |
+| `max_sources` | `int` | `1024` |
+| `source_ttl_seconds` | `int|float` | `300` |
+| `log_interval_seconds` | `int|float` | `60` |
+
+Deny-Regeln haben Vorrang; eine leere Allowlist erlaubt alle IPv4-Quellen.
+
+| Statistikschlüssel | Bedeutung |
+|---|---|
+| `accepted_packets` | Von der Schutzschicht akzeptierte Pakete. |
+| `rate_drops` | Durch Token-Buckets verworfene Pakete. |
+| `acl_drops` | Durch Allow-/Denylisten verworfene Pakete. |
+| `blocked_drops` | Pakete temporär gesperrter Quellen. |
+| `malformed_pdus` | Ungültige NPDU/APDU- oder Service-PDUs. |
+| `queue_overflows` | Nicht mehr in die MixedServer-Queue passende Pakete. |
+| `deduplicated_writes` | Erneut bestätigte Writes ohne Callback-Ausführung. |
+| `active_sources` | Noch nicht abgelaufene Quellzustände. |
+| `blocked_sources` | Aktuell temporär gesperrte Quellen. |
+
+`includeSources: true` ergänzt `sources`, eine auf `max_sources` begrenzte
+Diagnose-Map je Quell-IP mit Zählern, `blocked` und `idle_seconds`.
+`reset: true` liefert zuerst den aktuellen Stand und setzt danach kumulierte
+Zähler zurück; Token- und Sperrzustände bleiben bestehen.
+
+Erfolgreiche WriteProperty-Anfragen werden anhand Quelle, Invoke-ID, Objekt,
+Property und Payload dedupliziert. Ein Duplikat erhält erneut einen Simple-ACK,
+ohne den PHP-Callback nochmals auszuführen. Das Registrieren von
+`onWriteProperty()` bleibt die bewusste Schreibfreigabe.
+
+Die vollständige Ablauf-, INI- und Betriebsdokumentation steht unter
+[Server-Sicherheit](./server-security.md).
+
+---
+
 #### Bacnet\Server::poll()
 
 ```php
@@ -845,6 +943,76 @@ while (true) {
     // Eigene Logik (Sensorwerte aktualisieren etc.)
 }
 ```
+
+---
+
+### Bacnet\MixedServer
+
+```php
+class Bacnet\MixedServer extends Bacnet\Server
+```
+
+Kombiniert Server- und Client-Betrieb über genau einen BACnet/IP-Socket. Alle
+Methoden von `Bacnet\Server` bleiben verfügbar. Zusätzlich bietet die Klasse
+`whoIs()`; die zurückgegebenen `Bacnet\Device`-Objekte lesen und schreiben über
+denselben Socket. Die eigene Geräte-ID wird aus dem Discovery-Ergebnis entfernt.
+
+Der Konstruktor entspricht `Bacnet\Server::__construct()`. Eine ausführliche
+Beschreibung von Event-Loop, Queue und Daemon-Betrieb enthält der
+[Mixed-Modus-Leitfaden](./mixed-mode.md).
+
+#### Bacnet\MixedServer::whoIs()
+
+```php
+public function whoIs(
+    ?int $lowLimit = null,
+    ?int $highLimit = null,
+    ?int $timeoutMs = null,
+): array
+```
+
+Entspricht `Bacnet\Client::whoIs()`, nutzt aber den Socket des MixedServers und
+liefert `Bacnet\Device[]`, die an diesen MixedServer gebunden bleiben.
+
+#### Bacnet\MixedServer::getPendingPduCount()
+
+```php
+public function getPendingPduCount(): int
+```
+
+Liefert die Anzahl der Server-PDUs, die während eines synchronen Client-Aufrufs
+gepuffert wurden und noch durch `poll()` verarbeitet werden müssen.
+
+```php
+$mixed = new Bacnet\MixedServer(
+    deviceId: 5,
+    bindInterface: 'net3',
+    port: 47808,
+);
+
+$mixed->addLocalObject(new Bacnet\ObjectIdentifier(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+));
+
+foreach ($mixed->whoIs(timeoutMs: 1000) as $device) {
+    printf("%d @ %s\n", $device->getDeviceId(), $device->getAddress());
+}
+
+while (true) {
+    $mixed->poll(timeoutMs: 100);
+}
+```
+
+Client-Aufrufe sind synchron. Während einer laufenden Discovery- oder
+Property-Anfrage eintreffende Server-PDUs werden in einer begrenzten Queue
+gesichert und durch folgende `poll()`-Aufrufe verarbeitet. Der Event-Loop sollte
+daher kurze Client-Timeouts verwenden und `poll()` regelmäßig aufrufen.
+`getPendingPduCount(): int` liefert die Zahl der noch gepufferten PDUs; die
+Queue ist auf 32 Einträge begrenzt.
+
+Die geerbten Sicherheitsprüfungen laufen bereits vor dem Einreihen. Flood-,
+ACL-, Block- und malformed-Pakete können daher keine Queue-Plätze belegen.
 
 ---
 
@@ -1642,6 +1810,56 @@ foreach ($records as $i => $rec) {
     );
 }
 ```
+
+---
+
+### Beispiel 6 — Abgesicherter Server mit Statistiken
+
+```php
+<?php
+declare(strict_types=1);
+
+$server = new Bacnet\Server(9001, 'eth0', 47808);
+$server->setSecurityOptions([
+    'allowed_networks' => ['192.168.202.0/24'],
+    'denied_networks' => ['192.168.202.250/32'],
+    'write_rate' => 3,
+    'write_burst' => 6,
+]);
+
+$object = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::ANALOG_VALUE, 1);
+$server->addLocalObject($object);
+
+$value = 21.5;
+$server->onReadProperty(static function ($oid, $property, $index) use (&$value) {
+    return match ($property) {
+        Bacnet\Property::OBJECT_NAME => 'secured_value',
+        Bacnet\Property::PRESENT_VALUE => $value,
+        default => null,
+    };
+});
+$server->onWriteProperty(static function ($oid, $property, $newValue) use (&$value): void {
+    if ($property !== Bacnet\Property::PRESENT_VALUE
+        || !is_float($newValue)
+        || $newValue < 10.0
+        || $newValue > 30.0) {
+        return;
+    }
+    $value = $newValue;
+});
+
+$nextStats = hrtime(true) + 10_000_000_000;
+while (true) {
+    $server->poll(100);
+    if (hrtime(true) >= $nextStats) {
+        echo json_encode($server->getSecurityStats(), JSON_THROW_ON_ERROR), PHP_EOL;
+        $nextStats = hrtime(true) + 10_000_000_000;
+    }
+}
+```
+
+Das vollständige, per Umgebungsvariablen konfigurierbare Beispiel liegt in
+[`examples/security_server.php`](../examples/security_server.php).
 
 ---
 

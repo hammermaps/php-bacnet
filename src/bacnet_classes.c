@@ -3,6 +3,7 @@
 #endif
 
 #include <string.h>
+#include <unistd.h>
 #include "php.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"
@@ -27,6 +28,7 @@
 #include "bacnet_types.h"
 #include "bacnet_client.h"
 #include "bacnet_helpers.h"
+#include "bacnet_security.h"
 
 /* ── Class entry globals ─────────────────────────────────────────────── */
 
@@ -39,6 +41,7 @@ zend_class_entry *bacnet_ce_date              = NULL;
 zend_class_entry *bacnet_ce_time              = NULL;
 zend_class_entry *bacnet_ce_value             = NULL;
 zend_class_entry *bacnet_ce_server            = NULL;
+zend_class_entry *bacnet_ce_mixed             = NULL;
 zend_class_entry *bacnet_ce_schedule_entry    = NULL;
 zend_class_entry *bacnet_ce_weekly_schedule   = NULL;
 zend_class_entry *bacnet_ce_trend_log_record  = NULL;
@@ -59,6 +62,35 @@ static zend_object_handlers php_bacnet_time_handlers;
 static zend_object_handlers php_bacnet_objectref_handlers;
 static zend_object_handlers php_bacnet_value_handlers;
 static zend_object_handlers php_bacnet_server_handlers;
+
+static php_bacnet_client *bacnet_transport_from_owner(zval *owner)
+{
+    if (Z_TYPE_P(owner) != IS_OBJECT) return NULL;
+
+    if (bacnet_ce_mixed && instanceof_function(Z_OBJCE_P(owner), bacnet_ce_mixed)) {
+        return Z_BACNET_MIXED_P(owner)->client;
+    }
+    if (instanceof_function(Z_OBJCE_P(owner), bacnet_ce_client)) {
+        return Z_BACNET_CLIENT_P(owner)->client;
+    }
+    return NULL;
+}
+
+static void bacnet_mixed_queue_unsolicited(
+    void *context,
+    const BACNET_ADDRESS *source,
+    uint8_t *pdu,
+    uint16_t pdu_len)
+{
+    php_bacnet_server_obj *srv = (php_bacnet_server_obj *)context;
+    php_bacnet_packet_kind kind;
+    if (!php_bacnet_security_accept(srv->security, source, pdu, pdu_len, &kind)) {
+        return;
+    }
+    if (!php_bacnet_client_queue_pdu(srv->client, source, pdu, pdu_len)) {
+        php_bacnet_security_queue_overflow(srv->security);
+    }
+}
 
 /* ── Shared ReadProperty logic ───────────────────────────────────────────
  * Called by both Device::readProperty and ObjectRef::readProperty.
@@ -98,6 +130,10 @@ static int bacnet_exec_read_property(
         client, dest,
         req_apdu, (uint16_t)req_len,
         invoke_id, resp_apdu, &resp_len, timeout_ms);
+
+    if (status == -2 && EG(exception)) {
+        return -1;
+    }
 
     if (status == -1) {
         zend_throw_exception_ex(bacnet_ce_timeout_exception, 0,
@@ -216,6 +252,10 @@ static int bacnet_exec_write_property(
         client, dest,
         req_apdu, (uint16_t)req_len,
         invoke_id, resp_apdu, &resp_len, timeout_ms);
+
+    if (status == -2 && EG(exception)) {
+        return -1;
+    }
 
     if (status == -1) {
         zend_throw_exception_ex(bacnet_ce_timeout_exception, 0,
@@ -573,6 +613,17 @@ PHP_METHOD(Bacnet_Client, whoIs)
     int count = php_bacnet_broadcast_and_collect(
         obj->client, apdu, (uint16_t)apdu_len, entries, tms);
 
+    /*
+     * Some BACnet/IP devices occasionally miss the first Who-Is broadcast
+     * after a client socket is opened. Retry an empty discovery once without
+     * changing the public API or duplicating already discovered devices.
+     */
+    if (count == 0) {
+        usleep(250000);
+        count = php_bacnet_broadcast_and_collect(
+            obj->client, apdu, (uint16_t)apdu_len, entries, tms);
+    }
+
     array_init(return_value);
 
     for (int i = 0; i < count; i++) {
@@ -593,6 +644,91 @@ PHP_METHOD(Bacnet_Client, whoIs)
 static const zend_function_entry bacnet_client_methods[] = {
     PHP_ME(Bacnet_Client, __construct, arginfo_bacnet_client_construct, ZEND_ACC_PUBLIC)
     PHP_ME(Bacnet_Client, whoIs,       arginfo_bacnet_client_whois,     ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+/* Client side of Bacnet\MixedServer. The class inherits all Server methods. */
+PHP_METHOD(Bacnet_MixedServer, whoIs)
+{
+    zend_long low_limit  = 0;
+    zend_long high_limit = 0;
+    zend_long timeout_ms = 0;
+    bool low_null  = true;
+    bool high_null = true;
+    bool tms_null  = true;
+
+    ZEND_PARSE_PARAMETERS_START(0, 3)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_LONG_OR_NULL(low_limit,  low_null)
+        Z_PARAM_LONG_OR_NULL(high_limit, high_null)
+        Z_PARAM_LONG_OR_NULL(timeout_ms, tms_null)
+    ZEND_PARSE_PARAMETERS_END();
+
+    php_bacnet_server_obj *srv = Z_BACNET_MIXED_P(ZEND_THIS);
+    if (!srv->client) {
+        zend_throw_exception(bacnet_ce_exception, "BACnet mixed server not initialized", 0);
+        RETURN_THROWS();
+    }
+
+    int32_t lo = low_null ? 0 : (int32_t)low_limit;
+    int32_t hi = high_null ? BACNET_MAX_INSTANCE : (int32_t)high_limit;
+    uint32_t tms = tms_null
+        ? (uint32_t)BACNET_G(default_timeout_ms)
+        : (uint32_t)timeout_ms;
+
+    if (lo < 0) lo = 0;
+    if (hi > BACNET_MAX_INSTANCE) hi = BACNET_MAX_INSTANCE;
+
+    uint8_t apdu[64];
+    int apdu_len = whois_encode_apdu(apdu, lo, hi);
+    if (apdu_len <= 0) {
+        zend_throw_exception(bacnet_ce_exception, "Failed to encode Who-Is APDU", 0);
+        RETURN_THROWS();
+    }
+
+    php_bacnet_iam_entry entries[BACNET_MAX_COLLECTED_DEVICES];
+    int count = php_bacnet_broadcast_and_collect(
+        srv->client, apdu, (uint16_t)apdu_len, entries, tms);
+    if (EG(exception)) RETURN_THROWS();
+
+    if (count == 0) {
+        usleep(250000);
+        count = php_bacnet_broadcast_and_collect(
+            srv->client, apdu, (uint16_t)apdu_len, entries, tms);
+        if (EG(exception)) RETURN_THROWS();
+    }
+
+    array_init(return_value);
+    for (int i = 0; i < count; i++) {
+        zval device_zval;
+        object_init_ex(&device_zval, bacnet_ce_device);
+        php_bacnet_device_obj *dev = Z_BACNET_DEVICE_P(&device_zval);
+
+        dev->device_id = entries[i].device_id;
+        dev->max_apdu  = entries[i].max_apdu;
+        dev->vendor_id = entries[i].vendor_id;
+        memcpy(&dev->address, &entries[i].address, sizeof(BACNET_ADDRESS));
+        ZVAL_COPY(&dev->client_zval, ZEND_THIS);
+
+        add_next_index_zval(return_value, &device_zval);
+    }
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(
+    arginfo_bacnet_mixed_pending_pdu_count, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_MixedServer, getPendingPduCount)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_server_obj *srv = Z_BACNET_MIXED_P(ZEND_THIS);
+    RETURN_LONG(srv->client ? srv->client->pending_count : 0);
+}
+
+static const zend_function_entry bacnet_mixed_methods[] = {
+    PHP_ME(Bacnet_MixedServer, whoIs, arginfo_bacnet_client_whois, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_MixedServer, getPendingPduCount,
+        arginfo_bacnet_mixed_pending_pdu_count, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -691,8 +827,8 @@ PHP_METHOD(Bacnet_Device, readProperty)
         RETURN_THROWS();
     }
 
-    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
-    if (!cl->client) {
+    php_bacnet_client *client = bacnet_transport_from_owner(&dev->client_zval);
+    if (!client) {
         zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
         RETURN_THROWS();
     }
@@ -706,7 +842,7 @@ PHP_METHOD(Bacnet_Device, readProperty)
     uint32_t tms  = (uint32_t)BACNET_G(default_timeout_ms);
 
     bacnet_exec_read_property(
-        cl->client,
+        client,
         &dev->address,
         (BACNET_OBJECT_TYPE)Z_LVAL_P(ot_backing),
         (uint32_t)instance,
@@ -746,8 +882,8 @@ PHP_METHOD(Bacnet_Device, writeProperty)
         zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
         RETURN_THROWS();
     }
-    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
-    if (!cl->client) {
+    php_bacnet_client *client = bacnet_transport_from_owner(&dev->client_zval);
+    if (!client) {
         zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
         RETURN_THROWS();
     }
@@ -756,7 +892,7 @@ PHP_METHOD(Bacnet_Device, writeProperty)
     zval *pr_b = zend_enum_fetch_case_value(Z_OBJ_P(prop_enum));
 
     bacnet_exec_write_property(
-        cl->client, &dev->address,
+        client, &dev->address,
         (BACNET_OBJECT_TYPE)Z_LVAL_P(ot_b),
         (uint32_t)instance,
         (BACNET_PROPERTY_ID)Z_LVAL_P(pr_b),
@@ -1183,8 +1319,8 @@ PHP_METHOD(Bacnet_ObjectRef, readProperty)
         RETURN_THROWS();
     }
 
-    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
-    if (!cl->client) {
+    php_bacnet_client *client = bacnet_transport_from_owner(&dev->client_zval);
+    if (!client) {
         zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
         RETURN_THROWS();
     }
@@ -1194,7 +1330,7 @@ PHP_METHOD(Bacnet_ObjectRef, readProperty)
     uint32_t tms  = (uint32_t)BACNET_G(default_timeout_ms);
 
     bacnet_exec_read_property(
-        cl->client, &dev->address,
+        client, &dev->address,
         ref->object_type, ref->instance,
         (BACNET_PROPERTY_ID)Z_LVAL_P(prop_backing),
         aidx, tms,
@@ -1233,8 +1369,8 @@ PHP_METHOD(Bacnet_ObjectRef, writeProperty)
         zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
         RETURN_THROWS();
     }
-    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
-    if (!cl->client) {
+    php_bacnet_client *client = bacnet_transport_from_owner(&dev->client_zval);
+    if (!client) {
         zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
         RETURN_THROWS();
     }
@@ -1242,7 +1378,7 @@ PHP_METHOD(Bacnet_ObjectRef, writeProperty)
     zval *pr_b = zend_enum_fetch_case_value(Z_OBJ_P(prop_enum));
 
     bacnet_exec_write_property(
-        cl->client, &dev->address,
+        client, &dev->address,
         ref->object_type, ref->instance,
         (BACNET_PROPERTY_ID)Z_LVAL_P(pr_b),
         aidx_null ? BACNET_ARRAY_ALL : (uint32_t)array_index,
@@ -1267,13 +1403,13 @@ static php_bacnet_client *objectref_get_client(
         zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
         return NULL;
     }
-    php_bacnet_client_obj *cl = Z_BACNET_CLIENT_P(&dev->client_zval);
-    if (!cl->client) {
+    php_bacnet_client *client = bacnet_transport_from_owner(&dev->client_zval);
+    if (!client) {
         zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
         return NULL;
     }
     *addr_out = &dev->address;
-    return cl->client;
+    return client;
 }
 
 /* writeActive(): void — PRESENT_VALUE = enumerated(1) */
@@ -1675,6 +1811,7 @@ static zend_object *php_bacnet_server_create_object(zend_class_entry *ce)
     obj->read_handler_set = false;
     obj->write_handler_set= false;
     obj->local_objects    = NULL;
+    obj->security         = NULL;
     ZVAL_UNDEF(&obj->read_handler_zv);
     ZVAL_UNDEF(&obj->write_handler_zv);
     zend_object_std_init(&obj->std, ce);
@@ -1696,6 +1833,8 @@ static void php_bacnet_server_free_object(zend_object *object)
         efree(obj->local_objects);
         obj->local_objects = NULL;
     }
+    php_bacnet_security_destroy(obj->security);
+    obj->security = NULL;
     if (obj->read_handler_set) {
         zval_ptr_dtor(&obj->read_handler_zv);
         obj->read_handler_set = false;
@@ -1740,6 +1879,11 @@ PHP_METHOD(Bacnet_Server, __construct)
 
     php_bacnet_server_obj *srv = Z_BACNET_SERVER_P(ZEND_THIS);
 
+    srv->security = php_bacnet_security_create();
+    if (!srv->security) {
+        RETURN_THROWS();
+    }
+
     /* Allocate local_objects HashTable */
     srv->local_objects = (HashTable *)emalloc(sizeof(HashTable));
     zend_hash_init(srv->local_objects, 16, NULL, NULL, 0);
@@ -1766,6 +1910,12 @@ PHP_METHOD(Bacnet_Server, __construct)
 
     srv->device_id = (uint32_t)device_id;
     srv->auto_iam  = true;
+    if (bacnet_ce_mixed && instanceof_function(Z_OBJCE_P(ZEND_THIS), bacnet_ce_mixed)) {
+        srv->client->unsolicited_handler = bacnet_mixed_queue_unsolicited;
+        srv->client->unsolicited_context = srv;
+        srv->client->ignore_device_id = true;
+        srv->client->local_device_id = srv->device_id;
+    }
     BACNET_G(client_initialized) = 1;
 }
 
@@ -1885,6 +2035,58 @@ PHP_METHOD(Bacnet_Server, setAutoIAm)
     Z_BACNET_SERVER_P(ZEND_THIS)->auto_iam = enabled;
 }
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_set_security_options, 0, 1, IS_VOID, 0)
+    ZEND_ARG_TYPE_INFO(0, options, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Server, setSecurityOptions)
+{
+    HashTable *options;
+    ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_ARRAY_HT(options) ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_server_obj *srv = Z_BACNET_SERVER_P(ZEND_THIS);
+    if (!srv->security) {
+        zend_throw_exception(bacnet_ce_exception, "Server not initialized", 0);
+        RETURN_THROWS();
+    }
+    if (!php_bacnet_security_configure(srv->security, options)) {
+        RETURN_THROWS();
+    }
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_get_security_options, 0, 0, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Server, getSecurityOptions)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    php_bacnet_server_obj *srv = Z_BACNET_SERVER_P(ZEND_THIS);
+    if (!srv->security) {
+        zend_throw_exception(bacnet_ce_exception, "Server not initialized", 0);
+        RETURN_THROWS();
+    }
+    php_bacnet_security_options_to_array(srv->security, return_value);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_get_security_stats, 0, 0, IS_ARRAY, 0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, includeSources, _IS_BOOL, 0, "false")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, reset, _IS_BOOL, 0, "false")
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Server, getSecurityStats)
+{
+    bool include_sources = false, reset = false;
+    ZEND_PARSE_PARAMETERS_START(0, 2)
+        Z_PARAM_OPTIONAL Z_PARAM_BOOL(include_sources) Z_PARAM_BOOL(reset)
+    ZEND_PARSE_PARAMETERS_END();
+    php_bacnet_server_obj *srv = Z_BACNET_SERVER_P(ZEND_THIS);
+    if (!srv->security) {
+        zend_throw_exception(bacnet_ce_exception, "Server not initialized", 0);
+        RETURN_THROWS();
+    }
+    php_bacnet_security_stats_to_array(
+        srv->security, include_sources, reset, return_value);
+}
+
 /* ── poll() — process one pending PDU (non-blocking if timeoutMs=0) ──── */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_poll, 0, 0, IS_VOID, 0)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, timeoutMs, IS_LONG, 0, "0")
@@ -1910,18 +2112,33 @@ PHP_METHOD(Bacnet_Server, poll)
     BACNET_ADDRESS src;
     memset(&src, 0, sizeof(src));
 
-    uint16_t pdu_len = bip_receive(&src, pdu, (uint16_t)sizeof(pdu),
-                                   (unsigned)timeout_ms_arg);
+    uint16_t pdu_len = 0;
+    bool from_queue = php_bacnet_client_pop_pdu(srv->client, &src, pdu, &pdu_len);
+    if (!from_queue) {
+        pdu_len = bip_receive(&src, pdu, (uint16_t)sizeof(pdu),
+                              (unsigned)timeout_ms_arg);
+    }
     if (pdu_len == 0) return;
+
+    if (!from_queue) {
+        php_bacnet_packet_kind kind;
+        if (!php_bacnet_security_accept(srv->security, &src, pdu, pdu_len, &kind)) return;
+    }
 
     BACNET_ADDRESS npdu_dest, npdu_src_addr;
     BACNET_NPDU_DATA npdu_hdr;
     int npdu_len = bacnet_npdu_decode(pdu, pdu_len, &npdu_dest, &npdu_src_addr, &npdu_hdr);
-    if (npdu_len < 0 || npdu_hdr.network_layer_message) return;
+    if (npdu_len < 0 || npdu_hdr.network_layer_message) {
+        php_bacnet_security_malformed(srv->security, &src);
+        return;
+    }
 
     uint8_t  *apdu     = pdu + npdu_len;
     uint16_t  apdu_len = pdu_len - (uint16_t)npdu_len;
-    if (apdu_len < 2) return;
+    if (apdu_len < 2) {
+        php_bacnet_security_malformed(srv->security, &src);
+        return;
+    }
 
     uint8_t pdu_type = apdu[0] & 0xF0;
 
@@ -1941,7 +2158,11 @@ PHP_METHOD(Bacnet_Server, poll)
         if (apdu[1] == SERVICE_UNCONFIRMED_WHO_IS && srv->auto_iam) {
             int32_t low = -1, high = -1;
             if (apdu_len > 2) {
-                whois_decode_service_request(apdu + 2, apdu_len - 2, &low, &high);
+                if (whois_decode_service_request(
+                        apdu + 2, apdu_len - 2, &low, &high) < 0) {
+                    php_bacnet_security_malformed(srv->security, &src);
+                    goto poll_done;
+                }
             }
             uint32_t did = srv->device_id;
             bool in_range = ((low < 0)  || ((int32_t)did >= low))
@@ -1973,8 +2194,10 @@ PHP_METHOD(Bacnet_Server, poll)
         if (service == SERVICE_CONFIRMED_READ_PROPERTY) {
             BACNET_READ_PROPERTY_DATA rpdata;
             memset(&rpdata, 0, sizeof(rpdata));
-            if (rp_decode_service_request(apdu + 4, apdu_len - 4, &rpdata) < 0)
+            if (rp_decode_service_request(apdu + 4, apdu_len - 4, &rpdata) < 0) {
+                php_bacnet_security_malformed(srv->security, &src);
                 goto poll_done;
+            }
 
             zend_ulong obj_key = ((zend_ulong)rpdata.object_type << 22)
                                | (zend_ulong)rpdata.object_instance;
@@ -2059,8 +2282,21 @@ PHP_METHOD(Bacnet_Server, poll)
         } else if (service == SERVICE_CONFIRMED_WRITE_PROPERTY) {
             BACNET_WRITE_PROPERTY_DATA wpdata;
             memset(&wpdata, 0, sizeof(wpdata));
-            if (wp_decode_service_request(apdu + 4, apdu_len - 4, &wpdata) < 0)
+            if (wp_decode_service_request(apdu + 4, apdu_len - 4, &wpdata) < 0) {
+                php_bacnet_security_malformed(srv->security, &src);
                 goto poll_done;
+            }
+
+            if (php_bacnet_security_is_duplicate_write(
+                    srv->security, &src, apdu, apdu_len)) {
+                uint8_t ack_apdu[3] = {
+                    PDU_TYPE_SIMPLE_ACK, invoke_id, SERVICE_CONFIRMED_WRITE_PROPERTY
+                };
+                BACNET_NPDU_DATA resp_npdu;
+                npdu_encode_npdu_data(&resp_npdu, false, MESSAGE_PRIORITY_NORMAL);
+                bip_send_pdu(&src, &resp_npdu, ack_apdu, 3);
+                goto poll_done;
+            }
 
             zend_ulong obj_key = ((zend_ulong)wpdata.object_type << 22)
                                | (zend_ulong)wpdata.object_instance;
@@ -2122,6 +2358,8 @@ PHP_METHOD(Bacnet_Server, poll)
 
             if (call_rc == FAILURE || EG(exception)) goto poll_done;
 
+            php_bacnet_security_record_write(srv->security, &src, apdu, apdu_len);
+
             /* Simple-ACK */
             uint8_t ack_apdu[3];
             ack_apdu[0] = PDU_TYPE_SIMPLE_ACK;
@@ -2145,6 +2383,9 @@ static const zend_function_entry bacnet_server_methods[] = {
     PHP_ME(Bacnet_Server, onReadProperty,   arginfo_bacnet_server_on_read_property,     ZEND_ACC_PUBLIC)
     PHP_ME(Bacnet_Server, onWriteProperty,  arginfo_bacnet_server_on_write_property,    ZEND_ACC_PUBLIC)
     PHP_ME(Bacnet_Server, setAutoIAm,       arginfo_bacnet_server_set_auto_iam,         ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Server, setSecurityOptions, arginfo_bacnet_server_set_security_options, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Server, getSecurityOptions, arginfo_bacnet_server_get_security_options, ZEND_ACC_PUBLIC)
+    PHP_ME(Bacnet_Server, getSecurityStats, arginfo_bacnet_server_get_security_stats, ZEND_ACC_PUBLIC)
     PHP_ME(Bacnet_Server, poll,             arginfo_bacnet_server_poll,                 ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
@@ -2366,6 +2607,12 @@ void php_bacnet_register_classes(void)
     INIT_CLASS_ENTRY(ce, "Bacnet\\Server", bacnet_server_methods);
     bacnet_ce_server = zend_register_internal_class(&ce);
     bacnet_ce_server->create_object = php_bacnet_server_create_object;
+
+    /* ── Bacnet\MixedServer ───────────────────────────────────────── */
+
+    INIT_CLASS_ENTRY(ce, "Bacnet\\MixedServer", bacnet_mixed_methods);
+    bacnet_ce_mixed = zend_register_internal_class_ex(&ce, bacnet_ce_server);
+    bacnet_ce_mixed->create_object = php_bacnet_server_create_object;
 
     /* ── Bacnet\ScheduleEntry ─────────────────────────────────────── */
 
