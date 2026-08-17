@@ -35,6 +35,24 @@ typedef struct _zend_bacnet_globals {
     zend_long default_port;
     zend_long default_timeout_ms;
     char *default_interface;
+    bool server_security_enabled;
+    double server_per_source_rate;
+    zend_long server_per_source_burst;
+    double server_global_rate;
+    zend_long server_global_burst;
+    double server_who_is_rate;
+    zend_long server_who_is_burst;
+    double server_write_rate;
+    zend_long server_write_burst;
+    zend_long server_flood_violations;
+    double server_flood_window;
+    double server_block_duration;
+    double server_duplicate_window;
+    char *server_allowed_networks;
+    char *server_denied_networks;
+    zend_long server_max_sources;
+    double server_source_ttl;
+    double server_log_interval;
     uint8_t next_invoke_id;
     /*
      * Singleton guard: bacnet-stack's bip_init() binds a process-global UDP

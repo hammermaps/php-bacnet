@@ -6,6 +6,14 @@ All notable changes to php-bacnet are documented here.
 
 ### Added
 
+- `Bacnet\Server` und `Bacnet\MixedServer` schützen eingehende Pakete durch
+  IPv4-CIDR-ACLs, globale und quellbezogene Token-Buckets, dienstspezifische
+  Who-Is-/Write-Limits, temporäre Quellsperren und Write-Deduplizierung.
+- `setSecurityOptions()`, `getSecurityOptions()` und `getSecurityStats()` sowie
+  `bacnet.server_*`-INI-Direktiven konfigurieren und beobachten den Schutz.
+- MixedServer prüft Pakete vor seiner 32-PDU-Queue; Sicherheitsdemo sowie API-,
+  INI- und Netzwerk-Integrationstests dokumentieren den Betrieb.
+
 - `Bacnet\MixedServer` kombiniert die bestehende Server-API mit `whoIs()` und
   verwendet für gefundene Geräte denselben BACnet/IP-Socket. Eingehende
   Server-PDUs während synchroner Client-Aufrufe werden bis zum nächsten

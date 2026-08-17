@@ -19,13 +19,40 @@ function envInt(string $name, int $default, int $minimum, int $maximum): int
     return $value;
 }
 
+/** @return string[]|null null means that no override was requested. */
+function envCidrs(string $name): ?array
+{
+    $raw = getenv($name);
+    if ($raw === false) {
+        return null;
+    }
+    if (trim($raw) === '') {
+        return [];
+    }
+
+    return array_values(array_filter(array_map('trim', explode(',', $raw)), 'strlen'));
+}
+
 $interface = getenv('BACNET_DEMO_INTERFACE') ?: 'net3';
 $deviceId = envInt('BACNET_DEMO_DEVICE_ID', 5, 0, 4_194_302);
 $port = envInt('BACNET_DEMO_PORT', 47_808, 1, 65_535);
 $switchSeconds = envInt('BACNET_DEMO_SWITCH_SECONDS', 6, 1, 3_600);
 $discoverySeconds = envInt('BACNET_DEMO_DISCOVERY_SECONDS', 60, 5, 3_600);
+$statsSeconds = envInt('BACNET_DEMO_SECURITY_STATS_SECONDS', 60, 1, 3_600);
 
 $mixed = new Bacnet\MixedServer($deviceId, $interface, $port);
+$securityOptions = [];
+$allowedNetworks = envCidrs('BACNET_DEMO_ALLOWED_NETWORKS');
+$deniedNetworks = envCidrs('BACNET_DEMO_DENIED_NETWORKS');
+if ($allowedNetworks !== null) {
+    $securityOptions['allowed_networks'] = $allowedNetworks;
+}
+if ($deniedNetworks !== null) {
+    $securityOptions['denied_networks'] = $deniedNetworks;
+}
+if ($securityOptions !== []) {
+    $mixed->setSecurityOptions($securityOptions);
+}
 $deviceObject = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::DEVICE, $deviceId);
 $testObject = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::ANALOG_VALUE, 1);
 $mixed->addLocalObject($deviceObject);
@@ -63,10 +90,20 @@ printf(
 );
 
 $nextDiscovery = 0;
+$nextStats = time() + $statsSeconds;
 while (true) {
     do {
         $mixed->poll($mixed->getPendingPduCount() > 0 ? 0 : 100);
     } while ($mixed->getPendingPduCount() > 0);
+
+    if (time() >= $nextStats) {
+        printf(
+            "[%s] Security: %s\n",
+            date('c'),
+            json_encode($mixed->getSecurityStats(), JSON_THROW_ON_ERROR),
+        );
+        $nextStats = time() + $statsSeconds;
+    }
 
     if (time() < $nextDiscovery) {
         continue;

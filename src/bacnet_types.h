@@ -14,6 +14,7 @@
 #include "bacnet/datetime.h"
 #include "bacnet/bacapp.h"
 #include "bacnet_client.h"
+#include "bacnet_security.h"
 
 /*
  * Embedded-struct pattern for all PHP objects with C state.
@@ -159,6 +160,7 @@ typedef struct {
     zval read_handler_zv;    /* keeps callable ref-counted */
     zval write_handler_zv;
     HashTable *local_objects; /* key=(type<<22|instance), IS_TRUE */
+    php_bacnet_security *security;
     zend_object std;
 } php_bacnet_server_obj;
 

@@ -63,6 +63,27 @@ Client-Aufrufe sind synchron. Während `whoIs()`, `readProperty()` oder
 Server-PDUs in einer Queue mit maximal 32 Einträgen gesichert. Anschließende
 `poll()`-Aufrufe verarbeiten jeweils ein PDU.
 
+Vor dem Einreihen gelten dieselben ACL-, Rate-, Block- und PDU-Prüfungen wie
+bei `Server::poll()`. Ein Paket-Flood verdrängt daher keine zulässigen Anfragen
+aus der 32-PDU-Queue. Verworfene Pakete erscheinen in
+`getSecurityStats()`; Warnungen werden höchstens einmal pro konfiguriertem
+Logintervall aggregiert ausgegeben.
+
+Instanz-Overrides werden wie beim normalen Server gesetzt:
+
+```php
+$mixed->setSecurityOptions([
+    'allowed_networks' => ['192.168.202.0/24'],
+    'per_source_rate' => 50,
+    'who_is_rate' => 2,
+]);
+
+$stats = $mixed->getSecurityStats(includeSources: false);
+```
+
+Die vollständige Options- und Statistikreferenz steht unter
+[Server-Sicherheit](./server-security.md).
+
 ```php
 do {
     $mixed->poll($mixed->getPendingPduCount() > 0 ? 0 : 100);
@@ -91,3 +112,11 @@ aufrufen und die PDU-Queue leeren.
 UDP `47808` sollte verwendet werden, weil manche Geräte I-Am-Antworten immer an
 den BACnet-Standardport senden. Vollständige Beispiele liegen unter
 [`examples/`](../examples/README.md).
+
+## Sicherheitsgrenze
+
+Die eingebauten Limits begrenzen Fehlkonfigurationen und einfache Floods, sind
+aber keine kryptografische Authentisierung. Klassisches BACnet/IP bleibt
+unverschlüsselt und unauthentifiziert. VLAN und Firewall bilden weiterhin die
+primäre Netzgrenze. BACnet/SC ist die spätere kryptografische Lösung und liegt
+außerhalb des Umfangs dieser Erweiterungsversion.

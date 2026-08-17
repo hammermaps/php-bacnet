@@ -274,6 +274,29 @@ werden (`PHP_INI_ALL`).
 | `bacnet.default_port` | `int` | `47808` | UDP-Port für den BACnet/IP-Socket. Standardport ist `0xBAC0 = 47808`. |
 | `bacnet.default_timeout_ms` | `int` | `3000` | Wartezeit pro Request-/Response-Zyklus in Millisekunden. |
 | `bacnet.default_interface` | `string` | `"0.0.0.0"` | Netzwerk-Interface-Name (z. B. `"eth0"`, `"enp3s0"`). `"0.0.0.0"` = automatische Erkennung. |
+| `bacnet.server_security_enabled` | `bool` | `1` | Gemeinsame Schutzfunktionen für Server und MixedServer. |
+| `bacnet.server_per_source_rate` | `float` | `50` | Pakete pro Sekunde je Quell-IP. |
+| `bacnet.server_per_source_burst` | `int` | `100` | Token-Kapazität je Quell-IP. |
+| `bacnet.server_global_rate` | `float` | `500` | Pakete pro Sekunde über alle Quellen. |
+| `bacnet.server_global_burst` | `int` | `1000` | Globale Token-Kapazität. |
+| `bacnet.server_who_is_rate` | `float` | `2` | Who-Is-Pakete pro Sekunde je Quelle. |
+| `bacnet.server_who_is_burst` | `int` | `5` | Who-Is-Token-Kapazität je Quelle. |
+| `bacnet.server_write_rate` | `float` | `5` | WriteProperty-Pakete pro Sekunde je Quelle. |
+| `bacnet.server_write_burst` | `int` | `10` | WriteProperty-Token-Kapazität je Quelle. |
+| `bacnet.server_flood_violations` | `int` | `20` | Limitverletzungen bis zur temporären Sperre. |
+| `bacnet.server_flood_window_seconds` | `float` | `10` | Zeitfenster für Limitverletzungen. |
+| `bacnet.server_block_duration_seconds` | `float` | `60` | Dauer einer Quellsperre. |
+| `bacnet.server_duplicate_window_seconds` | `float` | `5` | Deduplizierungsfenster erfolgreicher Writes. |
+| `bacnet.server_allowed_networks` | `string` | leer | Kommagetrennte IPv4-CIDRs; leer erlaubt alle. |
+| `bacnet.server_denied_networks` | `string` | leer | Kommagetrennte IPv4-CIDRs; Deny hat Vorrang. |
+| `bacnet.server_max_sources` | `int` | `1024` | Maximal gespeicherte Quell-IP-Zustände. |
+| `bacnet.server_source_ttl_seconds` | `float` | `300` | Ablaufzeit inaktiver Quellen vor LRU-Ersatz. |
+| `bacnet.server_log_interval_seconds` | `float` | `60` | Mindestabstand aggregierter Warnungen. |
+
+Alle Direktiven sind `PHP_INI_ALL`. Server und MixedServer übernehmen ihren
+aktuellen Wert beim Konstruktor. Eine vollständige Erklärung von Token-Buckets,
+ACL-Priorität, Sperren, Deduplizierung und Statistikfeldern steht unter
+[Server-Sicherheit](./server-security.md).
 
 ### Beispiel-Konfiguration
 
@@ -290,7 +313,15 @@ bacnet.default_timeout_ms = 5000
 
 ; Explizites Interface für Mehrhaushalts-Server oder VLANs
 bacnet.default_interface = eth0
+
+; BACnet-Server nur aus dem Automations-VLAN erreichbar machen
+bacnet.server_allowed_networks = 192.168.202.0/24
+bacnet.server_denied_networks = 192.168.202.250/32
 ```
+
+Prüfe die wirksamen Werte nach dem Konstruktor mit
+`$server->getSecurityOptions()`. Instanz-Overrides per
+`setSecurityOptions()` haben Vorrang vor INI-Werten und wirken sofort.
 
 ### Laufzeit-Überschreibung
 

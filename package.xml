@@ -57,11 +57,13 @@
         <file name="faq.md"           role="doc"/>
         <file name="installation.md"  role="doc"/>
         <file name="mixed-mode.md"    role="doc"/>
+        <file name="server-security.md" role="doc"/>
       </dir>
       <dir name="examples">
         <file name="README.md"        role="doc"/>
         <file name="mixed_daemon.php" role="doc"/>
         <file name="mixed_read.php"   role="doc"/>
+        <file name="security_server.php" role="doc"/>
       </dir>
       <dir name="src">
         <file name="bacnet_classes.c"  role="src"/>
@@ -70,6 +72,8 @@
         <file name="bacnet_client.h"   role="src"/>
         <file name="bacnet_helpers.c"  role="src"/>
         <file name="bacnet_helpers.h"  role="src"/>
+        <file name="bacnet_security.c" role="src"/>
+        <file name="bacnet_security.h" role="src"/>
         <file name="bacnet_types.h"    role="src"/>
       </dir>
       <dir name="tests">
@@ -83,6 +87,9 @@
         <file name="008_advanced_types.phpt"      role="test"/>
         <file name="009_mixed_server.phpt"        role="test"/>
         <file name="010_mixed_server_lifecycle.phpt" role="test"/>
+        <file name="011_server_security.phpt" role="test"/>
+        <file name="012_server_security_ini.phpt" role="test"/>
+        <file name="integration_security.php" role="test"/>
         <file name="integration_mixed.php"        role="test"/>
         <file name="README.md"                    role="doc"/>
       </dir>

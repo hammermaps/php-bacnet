@@ -413,6 +413,35 @@ namespace Bacnet {
         public function setAutoIAm(bool $enabled): void {}
 
         /**
+         * Override security settings for this instance. Unknown keys and invalid
+         * values throw ValueError. Existing token and block state is reset.
+         * Unspecified options retain their current values.
+         *
+         * @param array<string, bool|int|float|string[]> $options
+         * @throws \ValueError
+         */
+        public function setSecurityOptions(array $options): void {}
+
+        /**
+         * Return all effective settings after defaults, INI and instance overrides.
+         *
+         * @return array<string, bool|int|float|string[]>
+         */
+        public function getSecurityOptions(): array {}
+
+        /**
+         * Return cumulative security counters and optionally bounded per-source diagnostics.
+         * Reset returns the current snapshot before clearing cumulative counters; token and
+         * block state is retained.
+         *
+         * @return array<string, int|array<string, array<string, int|float|bool>>>
+         */
+        public function getSecurityStats(
+            bool $includeSources = false,
+            bool $reset = false,
+        ): array {}
+
+        /**
          * Process at most one pending PDU from the socket (non-blocking by default).
          *
          * @param int $timeoutMs  Maximum time to block waiting for a PDU, in milliseconds.

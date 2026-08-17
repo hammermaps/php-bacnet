@@ -27,6 +27,8 @@ php run-tests.php -d extension=modules/bacnet.so --show-diff tests/
 | `008_advanced_types.phpt`   | No | ScheduleEntry, WeeklySchedule, TrendLogRecord, ObjectRef shortcuts |
 | `009_mixed_server.phpt`     | No | MixedServer inheritance, client API and queue status |
 | `010_mixed_server_lifecycle.phpt` | Optional | MixedServer callbacks, socket lifecycle and singleton guard |
+| `011_server_security.phpt` | Optional | Defaults, partielle Overrides, Validierung und Statistiken |
+| `012_server_security_ini.phpt` | Optional | INI-Übernahme und Vererbung durch MixedServer |
 
 ## Network-Dependent Tests
 
@@ -83,6 +85,20 @@ php tests/integration_mixed.php
 
 Ohne Objektangaben liest das Script standardmäßig `OBJECT_NAME` des
 Device-Objekts. Es gibt außerdem den Queue-Stand aus und leert gepufferte PDUs.
+
+`integration_security.php` sendet echte UDP/BACnet-IP-Pakete an einen lokalen
+Server und prüft Per-IP-/Global-/Who-Is-Limits, Sperren, CIDR-Regeln und die
+Deduplizierung erfolgreicher Writes. Der Mixed-Abschnitt erzeugt parallel zu
+`whoIs()` einen Flood und prüft, dass die geschützte Queue frei bleibt. Er
+benötigt `sockets` und `pcntl` und wird separat ausgeführt:
+
+```bash
+BACNET_TEST_INTERFACE=net3 BACNET_TEST_LOCAL_IP=192.168.202.5 \
+php -n -d extension=modules/bacnet.so tests/integration_security.php
+```
+
+Die geprüften Schutzsemantiken und alle konfigurierbaren Werte sind in
+[`docs/server-security.md`](../docs/server-security.md) beschrieben.
 
 ## Memory-Leak Check
 
