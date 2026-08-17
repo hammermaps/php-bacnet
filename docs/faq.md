@@ -39,6 +39,50 @@ Einige Geräte verpassen gelegentlich den ersten Broadcast nach dem Öffnen eine
 Sockets. `Client::whoIs()` wiederholt eine leere Suche automatisch einmal nach
 250 ms. Wähle trotzdem einen ausreichenden Timeout, zum Beispiel 5000 ms.
 
+## Warum dauert das Lesen einer Objektliste lange?
+
+Große Geräte können mehrere hundert Objekte enthalten. Einige Geräte brechen den
+Abruf der vollständigen `OBJECT_LIST` ab; dann muss die Liste über den
+`arrayIndex` einzeln gelesen werden. Das erzeugt einen BACnet-Request pro
+Objekt und kann spürbar dauern. Lies zunächst den Index `0`, um die Anzahl zu
+ermitteln, frage nur benötigte Bereiche ab und cache Objektmetadaten in der
+Anwendung. Aktuelle `PRESENT_VALUE`-Werte sollten dagegen nicht lange gecacht
+werden.
+
+## Warum zeigt ein Wert direkt nach `writeProperty()` noch den alten Stand?
+
+Ein erfolgreicher Write-ACK bestätigt zunächst nur, dass das Gerät den Auftrag
+angenommen hat. Die Regelungslogik kann den Wert erst im nächsten Zyklus
+übernehmen oder ihn durch eine höhere BACnet-Priorität ersetzen. Lies
+`PRESENT_VALUE` daher für einige Sekunden wiederholt und bewerte eine Änderung
+erst dann als wirksam. Ein realer Test zeigte nach einer Sekunde noch den alten
+Wert, nach insgesamt etwa sechs Sekunden jedoch den geschriebenen Sollwert.
+Für einen Sollwert etwa:
+
+```php
+$device->writeProperty($type, $instance, Bacnet\Property::PRESENT_VALUE,
+    Bacnet\Value::real(22.0));
+for ($attempt = 0; $attempt < 6; $attempt++) {
+    sleep(1);
+    $value = $device->readProperty($type, $instance, Bacnet\Property::PRESENT_VALUE);
+    if ((float) $value === 22.0) {
+        break;
+    }
+}
+```
+
+Vermeide wiederholte Schreibversuche ohne Prüfung: Sie können unnötige
+Prioritäten oder unerwartete Anlagenzustände erzeugen.
+
+## Wie finde ich den Betriebszustand oder einen Betriebsschalter?
+
+BACnet standardisiert Objekttypen, nicht die Namen der Anlagenpunkte. Suche
+zuerst in `OBJECT_NAME` und `DESCRIPTION` nach Begriffen wie `Betrieb`,
+`Freigabe`, `Mode` oder `Wählgerät` und lies anschließend `PRESENT_VALUE`.
+Ein Binary Output mit der Beschreibung „Freigabe“ kann einen einzelnen Antrieb
+statt des Gesamtbetriebs steuern. Schreibe Werte erst, wenn die Anlagenlogik,
+der korrekte Punkt und die verwendete BACnet-Priorität bestätigt sind.
+
 ## Wie finde ich typische Netzwerkprobleme?
 
 BACnet/IP-Broadcasts bleiben im lokalen Subnetz. Prüfe Interface, VLAN und

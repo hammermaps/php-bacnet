@@ -24,6 +24,7 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 |-------|-------------|
 | **Client** | Geräte per Who-Is/I-Am entdecken, Eigenschaften lesen und schreiben |
 | **Server** | Eigene BACnet-Objekte bereitstellen, Callbacks für Read/Write-Anfragen |
+| **Mixed** | Server und Client über einen gemeinsamen UDP-Socket betreiben |
 
 ---
 
@@ -48,11 +49,12 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 
 ## Features
 
-- **Typsichere OOP-API** — `Bacnet\Client`, `Bacnet\Device`, `Bacnet\ObjectRef`, `Bacnet\Server`
+- **Typsichere OOP-API** — `Bacnet\Client`, `Bacnet\Device`, `Bacnet\ObjectRef`, `Bacnet\Server`, `Bacnet\MixedServer`
 - **Explizite BACnet-Typen** — `Value::real()`, `Value::enumerated()`, `Value::characterString()` usw.
 - **Komplexe BACnet-Datentypen** — `BitString`, `Date`, `Time`, `ObjectIdentifier`
 - **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
 - **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`
+- **Mixed-Modus** — Server und ausgehende Client-Anfragen über einen gemeinsamen UDP-Socket
 - **Komfort-API** — `ObjectRef::writePresentValue()`, `writeActive()`, `writeInactive()`
 - **INI-Konfiguration** — Port, Timeout und Interface per `php.ini` konfigurierbar
 - **Keine externen Laufzeitabhängigkeiten** — bacnet-stack wird als statische Bibliothek eingebettet
@@ -107,6 +109,43 @@ $relay->writeInactive();  // ENUMERATED(0)
 
 ---
 
+## Mixed-Modus
+
+Ein `MixedServer` stellt lokale Objekte bereit und kann über denselben Socket
+andere Geräte entdecken, lesen und schreiben:
+
+```php
+$mixed = new Bacnet\MixedServer(5, 'net3', 47808);
+$mixed->addLocalObject(new Bacnet\ObjectIdentifier(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+));
+
+[$device] = $mixed->whoIs(200, 200, 1000);
+$value = $device->readProperty(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    10110,
+    Bacnet\Property::PRESENT_VALUE,
+);
+
+while (true) {
+    $mixed->poll(100);
+}
+```
+
+Während synchroner Client-Aufrufe werden eingehende Server-PDUs gepuffert und
+anschließend von `poll()` verarbeitet. Details und Event-Loop-Muster stehen in
+**[docs/mixed-mode.md](./docs/mixed-mode.md)**.
+
+Ausführbare Beispiele:
+
+```bash
+php examples/mixed_daemon.php
+php examples/mixed_read.php 200 analog_value 10110 present_value
+```
+
+---
+
 ## Installation
 
 Vollständige Anleitung: **[docs/installation.md](./docs/installation.md)**
@@ -153,6 +192,8 @@ bacnet.default_interface  = eth0
 | [docs/api-reference.md](./docs/api-reference.md) | Vollständige PHP API-Referenz (php.net-Stil) |
 | [docs/installation.md](./docs/installation.md) | Build- und Installationsanleitung |
 | [docs/faq.md](./docs/faq.md) | Häufige Fragen zu Installation, Discovery und Fehlersuche |
+| [docs/mixed-mode.md](./docs/mixed-mode.md) | Architektur, Queue und Daemon-Betrieb des Mixed-Modus |
+| [examples/README.md](./examples/README.md) | Ausführbare Client-/Server-Demos |
 | [stubs/bacnet.stub.php](./stubs/bacnet.stub.php) | IDE/PHPStan Stubs |
 | [CHANGELOG.md](./CHANGELOG.md) | Versionshistorie |
 

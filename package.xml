@@ -16,7 +16,7 @@
     bacnet-stack C library.  It exposes a type-safe OOP API under the
     Bacnet\ namespace, supporting client mode (device discovery,
     ReadProperty, WriteProperty) and server mode (respond to BACnet
-    requests via PHP callbacks).
+    requests via PHP callbacks), and mixed mode using one shared UDP socket.
   </description>
 
   <lead>
@@ -52,6 +52,17 @@
       <file name="README.md"        role="doc"/>
       <file name="CHANGELOG.md"     role="doc"/>
       <file name="LICENSE"          role="doc"/>
+      <dir name="docs">
+        <file name="api-reference.md" role="doc"/>
+        <file name="faq.md"           role="doc"/>
+        <file name="installation.md"  role="doc"/>
+        <file name="mixed-mode.md"    role="doc"/>
+      </dir>
+      <dir name="examples">
+        <file name="README.md"        role="doc"/>
+        <file name="mixed_daemon.php" role="doc"/>
+        <file name="mixed_read.php"   role="doc"/>
+      </dir>
       <dir name="src">
         <file name="bacnet_classes.c"  role="src"/>
         <file name="bacnet_classes.h"  role="src"/>
@@ -70,6 +81,9 @@
         <file name="006_write_property.phpt"      role="test"/>
         <file name="007_server_mode.phpt"         role="test"/>
         <file name="008_advanced_types.phpt"      role="test"/>
+        <file name="009_mixed_server.phpt"        role="test"/>
+        <file name="010_mixed_server_lifecycle.phpt" role="test"/>
+        <file name="integration_mixed.php"        role="test"/>
         <file name="README.md"                    role="doc"/>
       </dir>
       <dir name="stubs">

@@ -25,6 +25,8 @@ php run-tests.php -d extension=modules/bacnet.so --show-diff tests/
 | `006_write_property.phpt`   | No | Value factory methods, writeProperty signatures |
 | `007_server_mode.phpt`      | Optional | Server class API; tries real init, falls back to structural tests |
 | `008_advanced_types.phpt`   | No | ScheduleEntry, WeeklySchedule, TrendLogRecord, ObjectRef shortcuts |
+| `009_mixed_server.phpt`     | No | MixedServer inheritance, client API and queue status |
+| `010_mixed_server_lifecycle.phpt` | Optional | MixedServer callbacks, socket lifecycle and singleton guard |
 
 ## Network-Dependent Tests
 
@@ -63,6 +65,24 @@ for a `BACNET_TEST_HOST` environment variable:
 BACNET_TEST_DEVICE_ID=1234 BACNET_TEST_HOST=192.168.1.100 \
   php run-tests.php -d extension=modules/bacnet.so tests/
 ```
+
+### Mixed-Modus-Integrationstest
+
+`integration_mixed.php` startet einen MixedServer, registriert einen lokalen
+Testwert, entdeckt ein Zielgerät und liest eine Property über denselben Socket:
+
+```bash
+BACNET_TEST_INTERFACE=net3 \
+BACNET_TEST_LOCAL_DEVICE_ID=5 \
+BACNET_TEST_DEVICE_ID=200 \
+BACNET_TEST_OBJECT_TYPE=analog_value \
+BACNET_TEST_INSTANCE=10110 \
+BACNET_TEST_PROPERTY=present_value \
+php tests/integration_mixed.php
+```
+
+Ohne Objektangaben liest das Script standardmäßig `OBJECT_NAME` des
+Device-Objekts. Es gibt außerdem den Queue-Stand aus und leert gepufferte PDUs.
 
 ## Memory-Leak Check
 

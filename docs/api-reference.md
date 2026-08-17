@@ -16,6 +16,7 @@
    - [Bacnet\Device](#bacnetdevice)
    - [Bacnet\ObjectRef](#bacnetobjectref)
    - [Bacnet\Server](#bacnetserver)
+   - [Bacnet\MixedServer](#bacnetmixedserver)
    - [Bacnet\Value](#bacnetvalue)
    - [Bacnet\BitString](#bacnetbitstring)
    - [Bacnet\Date](#bacnetdate)
@@ -847,6 +848,73 @@ while (true) {
     // Eigene Logik (Sensorwerte aktualisieren etc.)
 }
 ```
+
+---
+
+### Bacnet\MixedServer
+
+```php
+class Bacnet\MixedServer extends Bacnet\Server
+```
+
+Kombiniert Server- und Client-Betrieb über genau einen BACnet/IP-Socket. Alle
+Methoden von `Bacnet\Server` bleiben verfügbar. Zusätzlich bietet die Klasse
+`whoIs()`; die zurückgegebenen `Bacnet\Device`-Objekte lesen und schreiben über
+denselben Socket. Die eigene Geräte-ID wird aus dem Discovery-Ergebnis entfernt.
+
+Der Konstruktor entspricht `Bacnet\Server::__construct()`. Eine ausführliche
+Beschreibung von Event-Loop, Queue und Daemon-Betrieb enthält der
+[Mixed-Modus-Leitfaden](./mixed-mode.md).
+
+#### Bacnet\MixedServer::whoIs()
+
+```php
+public function whoIs(
+    ?int $lowLimit = null,
+    ?int $highLimit = null,
+    ?int $timeoutMs = null,
+): array
+```
+
+Entspricht `Bacnet\Client::whoIs()`, nutzt aber den Socket des MixedServers und
+liefert `Bacnet\Device[]`, die an diesen MixedServer gebunden bleiben.
+
+#### Bacnet\MixedServer::getPendingPduCount()
+
+```php
+public function getPendingPduCount(): int
+```
+
+Liefert die Anzahl der Server-PDUs, die während eines synchronen Client-Aufrufs
+gepuffert wurden und noch durch `poll()` verarbeitet werden müssen.
+
+```php
+$mixed = new Bacnet\MixedServer(
+    deviceId: 5,
+    bindInterface: 'net3',
+    port: 47808,
+);
+
+$mixed->addLocalObject(new Bacnet\ObjectIdentifier(
+    Bacnet\ObjectType::ANALOG_VALUE,
+    1,
+));
+
+foreach ($mixed->whoIs(timeoutMs: 1000) as $device) {
+    printf("%d @ %s\n", $device->getDeviceId(), $device->getAddress());
+}
+
+while (true) {
+    $mixed->poll(timeoutMs: 100);
+}
+```
+
+Client-Aufrufe sind synchron. Während einer laufenden Discovery- oder
+Property-Anfrage eintreffende Server-PDUs werden in einer begrenzten Queue
+gesichert und durch folgende `poll()`-Aufrufe verarbeitet. Der Event-Loop sollte
+daher kurze Client-Timeouts verwenden und `poll()` regelmäßig aufrufen.
+`getPendingPduCount(): int` liefert die Zahl der noch gepufferten PDUs; die
+Queue ist auf 32 Einträge begrenzt.
 
 ---
 

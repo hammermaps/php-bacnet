@@ -420,4 +420,26 @@ namespace Bacnet {
          */
         public function poll(int $timeoutMs = 0): void {}
     }
+
+    /**
+     * BACnet/IP server and client sharing one UDP socket.
+     * Server methods are inherited; discovered Device objects use the same socket.
+     */
+    class MixedServer extends Server
+    {
+        /**
+         * Broadcast Who-Is and collect external I-Am responses.
+         * The MixedServer's own device ID is excluded.
+         *
+         * @return Device[]
+         */
+        public function whoIs(
+            ?int $lowLimit  = null,
+            ?int $highLimit = null,
+            ?int $timeoutMs = null,
+        ): array {}
+
+        /** Number of server PDUs buffered during synchronous client calls. */
+        public function getPendingPduCount(): int {}
+    }
 }

@@ -18,6 +18,20 @@
 
 /* Maximum devices collected by whoIs broadcast. Hard limit for v0.1.0. */
 #define BACNET_MAX_COLLECTED_DEVICES 64
+#define BACNET_PENDING_PDU_CAPACITY 32
+
+typedef struct {
+    BACNET_ADDRESS source;
+    uint16_t length;
+    uint8_t data[MAX_APDU + MAX_NPDU];
+} php_bacnet_pending_pdu;
+
+/* Handles PDUs that do not belong to the active synchronous client request. */
+typedef void (*php_bacnet_unsolicited_handler)(
+    void *context,
+    const BACNET_ADDRESS *source,
+    uint8_t *pdu,
+    uint16_t pdu_len);
 
 /*
  * Internal client state. One per Bacnet\Client object.
@@ -32,6 +46,13 @@ typedef struct {
     uint16_t port;
     char *iface;         /* interface string (pemalloc'd) */
     bool initialized;
+    php_bacnet_unsolicited_handler unsolicited_handler;
+    void *unsolicited_context;
+    bool ignore_device_id;
+    uint32_t local_device_id;
+    php_bacnet_pending_pdu pending_pdus[BACNET_PENDING_PDU_CAPACITY];
+    uint8_t pending_head;
+    uint8_t pending_count;
 } php_bacnet_client;
 
 /* Collected I-Am response */
@@ -44,6 +65,16 @@ typedef struct {
 
 php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, char **err_msg);
 void php_bacnet_client_destroy(php_bacnet_client *client);
+bool php_bacnet_client_queue_pdu(
+    php_bacnet_client *client,
+    const BACNET_ADDRESS *source,
+    const uint8_t *pdu,
+    uint16_t pdu_len);
+bool php_bacnet_client_pop_pdu(
+    php_bacnet_client *client,
+    BACNET_ADDRESS *source,
+    uint8_t *pdu,
+    uint16_t *pdu_len);
 
 /*
  * Synchronous unicast request/response with invoke-ID matching.

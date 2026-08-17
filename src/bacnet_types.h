@@ -170,4 +170,9 @@ static inline php_bacnet_server_obj *php_bacnet_server_from_obj(zend_object *obj
 #define Z_BACNET_SERVER_P(zv)  php_bacnet_server_from_obj(Z_OBJ_P(zv))
 #define Z_BACNET_SERVER(zv)    php_bacnet_server_from_obj(Z_OBJ(zv))
 
+/* Bacnet\MixedServer extends Server and deliberately uses the identical C layout. */
+typedef php_bacnet_server_obj php_bacnet_mixed_obj;
+#define Z_BACNET_MIXED_P(zv) Z_BACNET_SERVER_P(zv)
+#define Z_BACNET_MIXED(zv)   Z_BACNET_SERVER(zv)
+
 #endif /* PHP_BACNET_TYPES_H */
