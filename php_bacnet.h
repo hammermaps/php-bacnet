@@ -29,6 +29,7 @@ extern zend_class_entry *bacnet_ce_trend_log_record;
 extern zend_class_entry *bacnet_ce_exception;
 extern zend_class_entry *bacnet_ce_timeout_exception;
 extern zend_class_entry *bacnet_ce_device_exception;
+extern zend_class_entry *bacnet_ce_cache_backend;
 
 /* Extension globals (NTS only — no ZTS) */
 typedef struct _zend_bacnet_globals {
@@ -53,6 +54,35 @@ typedef struct _zend_bacnet_globals {
     zend_long server_max_sources;
     double server_source_ttl;
     double server_log_interval;
+    bool cache_enabled;
+    char *cache_l2_backend;
+    char *cache_namespace;
+    char *cache_lmdb_path;
+    char *cache_shm_name;
+    zend_long cache_l1_max_bytes;
+    zend_long cache_l2_max_bytes;
+    zend_long cache_lmdb_map_size;
+    zend_long cache_coherence_interval_ms;
+    double cache_log_interval;
+    bool cache_state_enabled;
+    double cache_state_ttl;
+    zend_long cache_state_max_entries;
+    bool cache_object_enabled;
+    double cache_object_ttl;
+    zend_long cache_object_max_entries;
+    bool cache_object_list_enabled;
+    double cache_object_list_ttl;
+    zend_long cache_object_list_max_entries;
+    bool cache_device_enabled;
+    double cache_device_ttl;
+    zend_long cache_device_max_entries;
+    bool cache_ip_enabled;
+    double cache_ip_ttl;
+    zend_long cache_ip_max_entries;
+    bool cache_negative_enabled;
+    double cache_negative_whois_ttl;
+    double cache_negative_read_ttl;
+    zend_long cache_negative_max_entries;
     uint8_t next_invoke_id;
     /*
      * Singleton guard: bacnet-stack's bip_init() binds a process-global UDP

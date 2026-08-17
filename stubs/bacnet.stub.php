@@ -8,6 +8,15 @@
  */
 
 namespace Bacnet {
+    interface CacheBackendInterface
+    {
+        public function get(string $namespace, string $partition, string $key): ?string;
+        public function set(string $namespace, string $partition, string $key, string $payload, int $expiresAtMs, int $maxEntries): void;
+        public function invalidate(string $namespace, string $partition, string $scope): void;
+        public function clear(string $namespace, ?string $partition): void;
+        public function getGeneration(string $namespace, string $partition): int;
+        public function bumpGeneration(string $namespace, string $partition): int;
+    }
 
     /* ── Enums ─────────────────────────────────────────────────────────── */
 
@@ -257,7 +266,14 @@ namespace Bacnet {
             ?int $lowLimit  = null,
             ?int $highLimit = null,
             ?int $timeoutMs = null,
+            bool $refresh = false,
         ): array {}
+
+        public function setCacheOptions(array $options): void {}
+        public function getCacheOptions(): array {}
+        public function getCacheStats(bool $includeEntries = false, bool $reset = false): array {}
+        public function clearCache(?string $partition = null): void {}
+        public function setCacheBackend(CacheBackendInterface $backend): void {}
     }
 
     /**
@@ -277,6 +293,7 @@ namespace Bacnet {
             int        $instance,
             Property   $property,
             ?int       $arrayIndex = null,
+            bool       $refresh = false,
         ): mixed {}
 
         /**
@@ -308,7 +325,7 @@ namespace Bacnet {
          * @throws TimeoutException
          * @throws DeviceException
          */
-        public function readProperty(Property $property, ?int $arrayIndex = null): mixed {}
+        public function readProperty(Property $property, ?int $arrayIndex = null, bool $refresh = false): mixed {}
 
         /**
          * @param int  $priority   1 (highest) .. 16 (lowest, default).
@@ -466,7 +483,14 @@ namespace Bacnet {
             ?int $lowLimit  = null,
             ?int $highLimit = null,
             ?int $timeoutMs = null,
+            bool $refresh = false,
         ): array {}
+
+        public function setCacheOptions(array $options): void {}
+        public function getCacheOptions(): array {}
+        public function getCacheStats(bool $includeEntries = false, bool $reset = false): array {}
+        public function clearCache(?string $partition = null): void {}
+        public function setCacheBackend(CacheBackendInterface $backend): void {}
 
         /** Number of server PDUs buffered during synchronous client calls. */
         public function getPendingPduCount(): int {}

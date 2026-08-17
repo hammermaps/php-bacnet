@@ -73,9 +73,9 @@ Time hour=14
 Time minute=30
 Time second=59
 Time hundredths=99
-readProperty params: 4
+readProperty params: 5
 readProperty required: 3
 bool(true)
 bool(true)
-ObjectRef::readProperty params: 2
+ObjectRef::readProperty params: 3
 done

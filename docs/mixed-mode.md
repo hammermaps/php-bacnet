@@ -16,6 +16,11 @@ Werte externer Geräte lesen oder schreiben müssen.
 Pro PHP-Prozess darf weiterhin nur eine dieser Instanzen existieren. Bestehende
 `Client`- und `Server`-Programme müssen nicht geändert werden.
 
+Der Client-Anteil verwendet POSIX Shared Memory als festen L1 und LMDB als
+Standard-L2. Eingehende Server-Callbacks werden nicht gecacht. Cacheoptionen
+und ein eigenes PHP-L2 können direkt am `MixedServer` gesetzt werden; siehe
+[client-cache.md](client-cache.md).
+
 ## Grundaufbau
 
 ```php

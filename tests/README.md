@@ -1,5 +1,9 @@
 # php-bacnet Tests
 
+`013_client_cache.phpt` prüft Shared Memory als festen L1, LMDB als
+Standard-L2, Optionen, Validierung, Statistiken, Reflection und ein generisches
+PHP-Backend.
+
 ## Running the Test Suite
 
 ```bash

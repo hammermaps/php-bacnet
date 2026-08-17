@@ -58,12 +58,15 @@
         <file name="installation.md"  role="doc"/>
         <file name="mixed-mode.md"    role="doc"/>
         <file name="server-security.md" role="doc"/>
+        <file name="client-cache.md" role="doc"/>
       </dir>
       <dir name="examples">
         <file name="README.md"        role="doc"/>
         <file name="mixed_daemon.php" role="doc"/>
         <file name="mixed_read.php"   role="doc"/>
         <file name="security_server.php" role="doc"/>
+        <file name="cache_backend.php" role="doc"/>
+        <file name="redis_cache_backend.php" role="doc"/>
       </dir>
       <dir name="src">
         <file name="bacnet_classes.c"  role="src"/>
@@ -72,11 +75,14 @@
         <file name="bacnet_client.h"   role="src"/>
         <file name="bacnet_helpers.c"  role="src"/>
         <file name="bacnet_helpers.h"  role="src"/>
+        <file name="bacnet_cache.c"     role="src"/>
+        <file name="bacnet_cache.h"     role="src"/>
         <file name="bacnet_security.c" role="src"/>
         <file name="bacnet_security.h" role="src"/>
         <file name="bacnet_types.h"    role="src"/>
       </dir>
       <dir name="tests">
+        <file name="013_client_cache.phpt" role="test"/>
         <file name="001_client_construct.phpt"   role="test"/>
         <file name="002_whois_no_network.phpt"   role="test"/>
         <file name="003_exceptions.phpt"          role="test"/>

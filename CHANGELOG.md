@@ -6,6 +6,12 @@ All notable changes to php-bacnet are documented here.
 
 ### Added
 
+- POSIX-Shared-Memory-L1 für Client und MixedServer sowie LMDB als persistentes
+  Standard-L2 ergänzt.
+- `CacheBackendInterface`, Cacheoptionen, Statistiken, Refresh-Parameter und
+  getrennte State-, Objekt-, Objektlisten-, Device-, IP- und Negative-Caches
+  ergänzt; beliebige PHP-Backends können LMDB pro Instanz ersetzen.
+
 - `Bacnet\Server` und `Bacnet\MixedServer` schützen eingehende Pakete durch
   IPv4-CIDR-ACLs, globale und quellbezogene Token-Buckets, dienstspezifische
   Who-Is-/Write-Limits, temporäre Quellsperren und Write-Deduplizierung.

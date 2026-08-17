@@ -14,6 +14,13 @@
 5. [Klassen](#5-klassen)
    - [Bacnet\Client](#bacnetclient)
    - [Bacnet\Device](#bacnetdevice)
+
+Client und MixedServer stellen zusätzlich `setCacheOptions()`,
+`getCacheOptions()`, `getCacheStats()`, `clearCache()` und
+`setCacheBackend()` bereit. L1 ist immer POSIX Shared Memory, L2 standardmäßig
+LMDB. `whoIs()` und `readProperty()` besitzen einen optionalen letzten
+`refresh`-Parameter. Alle Optionen und das generische
+`Bacnet\CacheBackendInterface` beschreibt [client-cache.md](client-cache.md).
    - [Bacnet\ObjectRef](#bacnetobjectref)
    - [Bacnet\Server](#bacnetserver)
    - [Bacnet\MixedServer](#bacnetmixedserver)

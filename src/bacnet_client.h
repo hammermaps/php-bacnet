@@ -20,6 +20,8 @@
 #define BACNET_MAX_COLLECTED_DEVICES 64
 #define BACNET_PENDING_PDU_CAPACITY 32
 
+typedef struct php_bacnet_cache php_bacnet_cache;
+
 typedef struct {
     BACNET_ADDRESS source;
     uint16_t length;
@@ -53,6 +55,7 @@ typedef struct {
     php_bacnet_pending_pdu pending_pdus[BACNET_PENDING_PDU_CAPACITY];
     uint8_t pending_head;
     uint8_t pending_count;
+    php_bacnet_cache *cache;
 } php_bacnet_client;
 
 /* Collected I-Am response */
@@ -64,6 +67,7 @@ typedef struct {
 } php_bacnet_iam_entry;
 
 php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, char **err_msg);
+void php_bacnet_client_enable_cache(php_bacnet_client *client);
 void php_bacnet_client_destroy(php_bacnet_client *client);
 bool php_bacnet_client_queue_pdu(
     php_bacnet_client *client,
