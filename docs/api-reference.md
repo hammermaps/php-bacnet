@@ -244,6 +244,8 @@ Sendet einen **Who-Is**-Broadcast und sammelt alle eingehenden **I-Am**-Antworte
 
 - `whoIs()` wartet immer die volle `$timeoutMs`-Zeit, auch wenn Geräte früher antworten,
   um alle Geräte im Netzwerk zu erfassen.
+- Wenn der erste Durchlauf keine Geräte findet, sendet die Erweiterung nach 250 ms
+  automatisch einen zweiten Who-Is-Broadcast.
 - Für eine gezielte Suche nach einem einzelnen Gerät können `$lowLimit` und `$highLimit`
   auf dieselbe Geräteinstanz gesetzt werden.
 - Duplikate (mehrere I-Am vom selben Gerät) werden automatisch gefiltert.

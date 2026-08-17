@@ -3,6 +3,7 @@
 #endif
 
 #include <string.h>
+#include <unistd.h>
 #include "php.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"
@@ -572,6 +573,17 @@ PHP_METHOD(Bacnet_Client, whoIs)
     php_bacnet_iam_entry entries[BACNET_MAX_COLLECTED_DEVICES];
     int count = php_bacnet_broadcast_and_collect(
         obj->client, apdu, (uint16_t)apdu_len, entries, tms);
+
+    /*
+     * Some BACnet/IP devices occasionally miss the first Who-Is broadcast
+     * after a client socket is opened. Retry an empty discovery once without
+     * changing the public API or duplicating already discovered devices.
+     */
+    if (count == 0) {
+        usleep(250000);
+        count = php_bacnet_broadcast_and_collect(
+            obj->client, apdu, (uint16_t)apdu_len, entries, tms);
+    }
 
     array_init(return_value);
 

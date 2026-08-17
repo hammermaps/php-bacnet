@@ -244,7 +244,8 @@ namespace Bacnet {
         ) {}
 
         /**
-         * Broadcast Who-Is and collect I-Am responses.
+         * Broadcast Who-Is and collect I-Am responses. An empty first discovery
+         * is retried once after a short delay.
          *
          * @param int|null $lowLimit   Device instance lower bound (null = 0).
          * @param int|null $highLimit  Device instance upper bound (null = 4194303).
