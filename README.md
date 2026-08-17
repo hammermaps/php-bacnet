@@ -152,6 +152,7 @@ bacnet.default_interface  = eth0
 |-------|-------------|
 | [docs/api-reference.md](./docs/api-reference.md) | Vollständige PHP API-Referenz (php.net-Stil) |
 | [docs/installation.md](./docs/installation.md) | Build- und Installationsanleitung |
+| [docs/faq.md](./docs/faq.md) | Häufige Fragen zu Installation, Discovery und Fehlersuche |
 | [stubs/bacnet.stub.php](./stubs/bacnet.stub.php) | IDE/PHPStan Stubs |
 | [CHANGELOG.md](./CHANGELOG.md) | Versionshistorie |
 
