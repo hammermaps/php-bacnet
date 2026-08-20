@@ -2361,6 +2361,70 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_poll, 0, 0, IS_VOI
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, timeoutMs, IS_LONG, 0, "0")
 ZEND_END_ARG_INFO()
 
+/*
+ * BACnet/IP transports an already encoded NPDU.  bip_send_pdu() only adds
+ * the BVLC header, therefore handing it an APDU directly produces packets
+ * that conforming BACnet clients reject.
+ */
+static bool php_bacnet_server_send_apdu(
+    BACNET_ADDRESS *dest, const uint8_t *apdu, uint16_t apdu_len)
+{
+    uint8_t pdu[MAX_APDU + MAX_NPDU];
+    BACNET_NPDU_DATA npdu_data;
+    BACNET_ADDRESS my_address;
+    int npdu_len;
+
+    if (!dest || !apdu) {
+        return false;
+    }
+
+    npdu_encode_npdu_data(&npdu_data, false, MESSAGE_PRIORITY_NORMAL);
+    bip_get_my_address(&my_address);
+    npdu_len = npdu_encode_pdu(pdu, dest, &my_address, &npdu_data);
+    if (npdu_len < 0 || (size_t)npdu_len + apdu_len > sizeof(pdu)) {
+        return false;
+    }
+
+    memcpy(pdu + npdu_len, apdu, apdu_len);
+    return bip_send_pdu(
+               dest,
+               &npdu_data,
+               pdu,
+               (uint16_t)(npdu_len + apdu_len)) > 0;
+}
+
+/* Standardwerte für das DEVICE-Objekt; ein PHP-Read-Hook darf sie überschreiben. */
+static bool php_bacnet_server_default_device_property(
+    php_bacnet_server_obj *srv, BACNET_OBJECT_TYPE type, uint32_t instance,
+    BACNET_PROPERTY_ID property, zval *result)
+{
+    if (type != OBJECT_DEVICE || instance != srv->device_id) return false;
+    switch (property) {
+        case PROP_OBJECT_IDENTIFIER:
+            php_bacnet_oid_from_c(OBJECT_DEVICE, srv->device_id, result); return true;
+        case PROP_OBJECT_TYPE: ZVAL_LONG(result, OBJECT_DEVICE); return true;
+        case PROP_DESCRIPTION: ZVAL_STRING(result, "php-bacnet server"); return true;
+        case PROP_APDU_SEGMENT_TIMEOUT: ZVAL_LONG(result, 2000); return true;
+        case PROP_APDU_TIMEOUT: ZVAL_LONG(result, 3000); return true;
+        case PROP_APPLICATION_SOFTWARE_VERSION: ZVAL_STRING(result, "php-bacnet"); return true;
+        case PROP_FIRMWARE_REVISION: ZVAL_STRING(result, "1.0"); return true;
+        case PROP_MAX_APDU_LENGTH_ACCEPTED: ZVAL_LONG(result, 480); return true;
+        case PROP_NUMBER_OF_APDU_RETRIES: ZVAL_LONG(result, 3); return true;
+        case PROP_MODEL_NAME: ZVAL_STRING(result, "php-bacnet MixedServer"); return true;
+        case PROP_PROTOCOL_VERSION: ZVAL_LONG(result, BACNET_PROTOCOL_VERSION); return true;
+        case PROP_PROTOCOL_REVISION: ZVAL_LONG(result, BACNET_PROTOCOL_REVISION); return true;
+        case PROP_SYSTEM_STATUS: ZVAL_LONG(result, 0); return true;
+        /* 0 ist nach BACnet der nicht zugewiesene Hersteller-Identifier. */
+        case PROP_VENDOR_IDENTIFIER: ZVAL_LONG(result, 0); return true;
+        case PROP_SEGMENTATION_SUPPORTED: ZVAL_LONG(result, SEGMENTATION_NONE); return true;
+        case PROP_MAX_SEGMENTS_ACCEPTED: ZVAL_LONG(result, 0); return true;
+        case PROP_VENDOR_NAME:
+            ZVAL_STRING(result, "https://github.com/hammermaps/php-bacnet");
+            return true;
+        default: return false;
+    }
+}
+
 PHP_METHOD(Bacnet_Server, poll)
 {
     zend_long timeout_ms_arg = 0;
@@ -2416,9 +2480,7 @@ PHP_METHOD(Bacnet_Server, poll)
     uint8_t _ea[32]; \
     int _el = bacerror_encode_apdu(_ea, (iid), (svc), (ec), (code)); \
     if (_el > 0) { \
-        BACNET_NPDU_DATA _nd; \
-        npdu_encode_npdu_data(&_nd, false, MESSAGE_PRIORITY_NORMAL); \
-        bip_send_pdu(&src, &_nd, _ea, (uint16_t)_el); \
+        php_bacnet_server_send_apdu(&src, _ea, (uint16_t)_el); \
     } \
 } while (0)
 
@@ -2441,12 +2503,11 @@ PHP_METHOD(Bacnet_Server, poll)
                 int iam_len = iam_encode_apdu(iam_apdu, srv->device_id,
                                               480, SEGMENTATION_NONE, 0);
                 if (iam_len > 0) {
-                    BACNET_NPDU_DATA resp_npdu;
-                    npdu_encode_npdu_data(&resp_npdu, false, MESSAGE_PRIORITY_NORMAL);
                     BACNET_ADDRESS bcast;
                     memset(&bcast, 0, sizeof(bcast));
-                    bcast.net = BACNET_BROADCAST_NETWORK;
-                    bip_send_pdu(&bcast, &resp_npdu, iam_apdu, (uint16_t)iam_len);
+                    /* B/IP subnet broadcast: no routed/global NPDU address. */
+                    bcast.net = 0;
+                    php_bacnet_server_send_apdu(&bcast, iam_apdu, (uint16_t)iam_len);
                 }
             }
         }
@@ -2517,6 +2578,12 @@ PHP_METHOD(Bacnet_Server, poll)
             zval_ptr_dtor(&prop_zv);
 
             if (call_rc == FAILURE || EG(exception)) { goto poll_done; }
+            if (Z_TYPE(retval) == IS_NULL
+                && php_bacnet_server_default_device_property(
+                    srv, rpdata.object_type, rpdata.object_instance,
+                    rpdata.object_property, &retval)) {
+                /* Der Hook hat NULL geliefert, daher durch C-Standard ersetzen. */
+            }
 
             /* Encode return value → BACNET_APPLICATION_DATA_VALUE */
             BACNET_APPLICATION_DATA_VALUE appval;
@@ -2542,9 +2609,7 @@ PHP_METHOD(Bacnet_Server, poll)
             uint8_t ack_apdu[MAX_APDU];
             int ack_len = rp_ack_encode_apdu(ack_apdu, invoke_id, &rpdata);
             if (ack_len > 0) {
-                BACNET_NPDU_DATA resp_npdu;
-                npdu_encode_npdu_data(&resp_npdu, false, MESSAGE_PRIORITY_NORMAL);
-                bip_send_pdu(&src, &resp_npdu, ack_apdu, (uint16_t)ack_len);
+                php_bacnet_server_send_apdu(&src, ack_apdu, (uint16_t)ack_len);
             }
 
         /* ── WriteProperty ────────────────────────────────────────────── */
@@ -2561,9 +2626,7 @@ PHP_METHOD(Bacnet_Server, poll)
                 uint8_t ack_apdu[3] = {
                     PDU_TYPE_SIMPLE_ACK, invoke_id, SERVICE_CONFIRMED_WRITE_PROPERTY
                 };
-                BACNET_NPDU_DATA resp_npdu;
-                npdu_encode_npdu_data(&resp_npdu, false, MESSAGE_PRIORITY_NORMAL);
-                bip_send_pdu(&src, &resp_npdu, ack_apdu, 3);
+                php_bacnet_server_send_apdu(&src, ack_apdu, 3);
                 goto poll_done;
             }
 
@@ -2634,9 +2697,7 @@ PHP_METHOD(Bacnet_Server, poll)
             ack_apdu[0] = PDU_TYPE_SIMPLE_ACK;
             ack_apdu[1] = invoke_id;
             ack_apdu[2] = SERVICE_CONFIRMED_WRITE_PROPERTY;
-            BACNET_NPDU_DATA resp_npdu;
-            npdu_encode_npdu_data(&resp_npdu, false, MESSAGE_PRIORITY_NORMAL);
-            bip_send_pdu(&src, &resp_npdu, ack_apdu, 3);
+            php_bacnet_server_send_apdu(&src, ack_apdu, 3);
         }
     }
 
@@ -2721,10 +2782,20 @@ void php_bacnet_register_classes(void)
         zend_register_internal_enum("Bacnet\\Property", IS_LONG, NULL);
 
     bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_IDENTIFIER",           75);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "APDU_SEGMENT_TIMEOUT",       10);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "APDU_TIMEOUT",               11);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "APPLICATION_SOFTWARE_VERSION", 12);
     bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_NAME",                 77);
     bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_TYPE",                 79);
     bacnet_enum_add_long(bacnet_ce_property_enum, "DESCRIPTION",                 28);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "DEVICE_ADDRESS_BINDING",     30);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "FIRMWARE_REVISION",          44);
     bacnet_enum_add_long(bacnet_ce_property_enum, "OBJECT_LIST",                 76);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "LOCAL_DATE",                  56);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "LOCAL_TIME",                  57);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "MAX_APDU_LENGTH_ACCEPTED",   62);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "MODEL_NAME",                  70);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "NUMBER_OF_APDU_RETRIES",     73);
     bacnet_enum_add_long(bacnet_ce_property_enum, "PRESENT_VALUE",               85);
     bacnet_enum_add_long(bacnet_ce_property_enum, "STATUS_FLAGS",               111);
     bacnet_enum_add_long(bacnet_ce_property_enum, "EVENT_STATE",                 36);
@@ -2750,6 +2821,17 @@ void php_bacnet_register_classes(void)
     bacnet_enum_add_long(bacnet_ce_property_enum, "RECORD_COUNT",               141);
     bacnet_enum_add_long(bacnet_ce_property_enum, "TOTAL_RECORD_COUNT",         145);
     bacnet_enum_add_long(bacnet_ce_property_enum, "RELIABILITY",                103);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PROTOCOL_OBJECT_TYPES_SUPPORTED", 96);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PROTOCOL_SERVICES_SUPPORTED", 97);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PROTOCOL_VERSION",           98);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "SYSTEM_STATUS",              112);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "SEGMENTATION_SUPPORTED",     107);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "VENDOR_IDENTIFIER",         120);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "VENDOR_NAME",               121);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "PROTOCOL_REVISION",         139);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "DATABASE_REVISION",         155);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "ACTIVE_COV_SUBSCRIPTIONS",  152);
+    bacnet_enum_add_long(bacnet_ce_property_enum, "MAX_SEGMENTS_ACCEPTED",     167);
 
     INIT_CLASS_ENTRY(ce, "Bacnet\\CacheBackendInterface", bacnet_cache_backend_methods);
     bacnet_ce_cache_backend = zend_register_internal_interface(&ce);
