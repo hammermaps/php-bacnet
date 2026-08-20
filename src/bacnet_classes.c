@@ -17,7 +17,9 @@
 #include "bacnet/whois.h"
 #include "bacnet/iam.h"
 #include "bacnet/rp.h"
+#include "bacnet/rpm.h"
 #include "bacnet/wp.h"
+#include "bacnet/abort.h"
 #include "bacnet/bacapp.h"
 #include "bacnet/bacerror.h"
 #include "bacnet/bacstr.h"
@@ -2413,6 +2415,15 @@ static bool php_bacnet_server_default_device_property(
         case PROP_MODEL_NAME: ZVAL_STRING(result, "php-bacnet MixedServer"); return true;
         case PROP_PROTOCOL_VERSION: ZVAL_LONG(result, BACNET_PROTOCOL_VERSION); return true;
         case PROP_PROTOCOL_REVISION: ZVAL_LONG(result, BACNET_PROTOCOL_REVISION); return true;
+        case PROP_PROTOCOL_SERVICES_SUPPORTED: {
+            BACNET_BIT_STRING services;
+            bitstring_init(&services);
+            bitstring_set_bit(&services, SERVICE_CONFIRMED_READ_PROPERTY, true);
+            bitstring_set_bit(&services, SERVICE_CONFIRMED_READ_PROP_MULTIPLE, true);
+            bitstring_set_bit(&services, SERVICE_CONFIRMED_WRITE_PROPERTY, true);
+            php_bacnet_bitstring_new(&services, result);
+            return true;
+        }
         case PROP_SYSTEM_STATUS: ZVAL_LONG(result, 0); return true;
         /* 0 ist nach BACnet der nicht zugewiesene Hersteller-Identifier. */
         case PROP_VENDOR_IDENTIFIER: ZVAL_LONG(result, 0); return true;
@@ -2424,6 +2435,86 @@ static bool php_bacnet_server_default_device_property(
         default: return false;
     }
 }
+
+/* Resolve a server property once for both ReadProperty and RPM.  A NULL from
+ * PHP deliberately means "use the built-in DEVICE value"; it never becomes a
+ * BACnet NULL response for an unsupported property. */
+static bool php_bacnet_server_resolve_property(
+    php_bacnet_server_obj *srv, BACNET_OBJECT_TYPE type, uint32_t instance,
+    BACNET_PROPERTY_ID property, BACNET_ARRAY_INDEX array_index, zval *result,
+    BACNET_ERROR_CLASS *error_class, BACNET_ERROR_CODE *error_code)
+{
+    zend_ulong key = ((zend_ulong)type << 22) | (zend_ulong)instance;
+    bool is_device = type == OBJECT_DEVICE && instance == srv->device_id;
+
+    *error_class = ERROR_CLASS_PROPERTY;
+    *error_code = ERROR_CODE_UNKNOWN_PROPERTY;
+    ZVAL_NULL(result);
+
+    if (!is_device && (!srv->local_objects
+            || !zend_hash_index_exists(srv->local_objects, key))) {
+        *error_class = ERROR_CLASS_OBJECT;
+        *error_code = ERROR_CODE_UNKNOWN_OBJECT;
+        return false;
+    }
+
+    if (srv->read_handler_set) {
+        zval oid_zv, prop_zv, prop_int_zv, aidx_zv, args[3];
+        php_bacnet_oid_from_c(type, instance, &oid_zv);
+        ZVAL_LONG(&prop_int_zv, (zend_long)property);
+        ZVAL_UNDEF(&prop_zv);
+        zend_call_method_with_1_params(NULL, bacnet_ce_property_enum,
+            NULL, "tryfrom", &prop_zv, &prop_int_zv);
+        if (EG(exception)) {
+            zval_ptr_dtor(&oid_zv);
+            return false;
+        }
+        if (Z_TYPE(prop_zv) != IS_OBJECT) {
+            ZVAL_COPY_VALUE(&prop_zv, &prop_int_zv);
+        }
+        if (array_index == BACNET_ARRAY_ALL) ZVAL_NULL(&aidx_zv);
+        else ZVAL_LONG(&aidx_zv, (zend_long)array_index);
+        ZVAL_COPY_VALUE(&args[0], &oid_zv);
+        ZVAL_COPY_VALUE(&args[1], &prop_zv);
+        ZVAL_COPY_VALUE(&args[2], &aidx_zv);
+
+        zend_fcall_info fci;
+        memset(&fci, 0, sizeof(fci));
+        fci.size = sizeof(fci);
+        fci.retval = result;
+        fci.param_count = 3;
+        fci.params = args;
+        int call_rc = zend_call_function(&fci, &srv->read_fcc);
+        zval_ptr_dtor(&oid_zv);
+        zval_ptr_dtor(&prop_zv);
+        if (call_rc == FAILURE || EG(exception)) return false;
+    }
+
+    if (Z_TYPE_P(result) == IS_NULL
+        && php_bacnet_server_default_device_property(
+            srv, type, instance, property, result)) {
+        return true;
+    }
+    if (Z_TYPE_P(result) == IS_NULL) {
+        *error_code = ERROR_CODE_UNKNOWN_PROPERTY;
+        return false;
+    }
+    return true;
+}
+
+static const BACNET_PROPERTY_ID php_bacnet_server_device_all_properties[] = {
+    PROP_OBJECT_IDENTIFIER, PROP_OBJECT_NAME, PROP_OBJECT_TYPE, PROP_DESCRIPTION,
+    PROP_SYSTEM_STATUS, PROP_VENDOR_NAME, PROP_VENDOR_IDENTIFIER, PROP_MODEL_NAME,
+    PROP_FIRMWARE_REVISION, PROP_APPLICATION_SOFTWARE_VERSION,
+    PROP_PROTOCOL_VERSION, PROP_PROTOCOL_REVISION, PROP_SEGMENTATION_SUPPORTED,
+    PROP_PROTOCOL_SERVICES_SUPPORTED,
+    PROP_APDU_TIMEOUT, PROP_NUMBER_OF_APDU_RETRIES, PROP_MAX_APDU_LENGTH_ACCEPTED,
+    PROP_APDU_SEGMENT_TIMEOUT, PROP_MAX_SEGMENTS_ACCEPTED
+};
+static const BACNET_PROPERTY_ID php_bacnet_server_object_all_properties[] = {
+    PROP_OBJECT_IDENTIFIER, PROP_OBJECT_NAME, PROP_OBJECT_TYPE, PROP_DESCRIPTION,
+    PROP_PRESENT_VALUE
+};
 
 PHP_METHOD(Bacnet_Server, poll)
 {
@@ -2529,60 +2620,18 @@ PHP_METHOD(Bacnet_Server, poll)
                 goto poll_done;
             }
 
-            zend_ulong obj_key = ((zend_ulong)rpdata.object_type << 22)
-                               | (zend_ulong)rpdata.object_instance;
-            if (!srv->local_objects
-                || !zend_hash_index_exists(srv->local_objects, obj_key)
-                || !srv->read_handler_set) {
-                BACNET_SEND_ERROR(invoke_id, SERVICE_CONFIRMED_READ_PROPERTY,
-                    ERROR_CLASS_OBJECT, ERROR_CODE_UNKNOWN_OBJECT);
-                goto poll_done;
-            }
-
-            /* Build PHP args: (ObjectIdentifier, Property|int, ?int) */
-            zval oid_zv, prop_zv, aidx_zv;
-            php_bacnet_oid_from_c(rpdata.object_type, rpdata.object_instance, &oid_zv);
-
-            zval prop_int_zv;
-            ZVAL_LONG(&prop_int_zv, (zend_long)rpdata.object_property);
-            ZVAL_UNDEF(&prop_zv);
-            zend_call_method_with_1_params(NULL, bacnet_ce_property_enum,
-                NULL, "tryfrom", &prop_zv, &prop_int_zv);
-            if (EG(exception)) { zval_ptr_dtor(&oid_zv); goto poll_done; }
-            if (Z_TYPE(prop_zv) != IS_OBJECT) {
-                /* Unknown property: pass raw int */
-                ZVAL_COPY_VALUE(&prop_zv, &prop_int_zv);
-            }
-
-            if (rpdata.array_index == BACNET_ARRAY_ALL) {
-                ZVAL_NULL(&aidx_zv);
-            } else {
-                ZVAL_LONG(&aidx_zv, (zend_long)rpdata.array_index);
-            }
-
-            zval args[3], retval;
-            ZVAL_COPY_VALUE(&args[0], &oid_zv);
-            ZVAL_COPY_VALUE(&args[1], &prop_zv);
-            ZVAL_COPY_VALUE(&args[2], &aidx_zv);
-            ZVAL_UNDEF(&retval);
-
-            zend_fcall_info fci;
-            memset(&fci, 0, sizeof(fci));
-            fci.size        = sizeof(fci);
-            fci.retval      = &retval;
-            fci.param_count = 3;
-            fci.params      = args;
-
-            int call_rc = zend_call_function(&fci, &srv->read_fcc);
-            zval_ptr_dtor(&oid_zv);
-            zval_ptr_dtor(&prop_zv);
-
-            if (call_rc == FAILURE || EG(exception)) { goto poll_done; }
-            if (Z_TYPE(retval) == IS_NULL
-                && php_bacnet_server_default_device_property(
+            zval retval;
+            BACNET_ERROR_CLASS error_class;
+            BACNET_ERROR_CODE error_code;
+            if (!php_bacnet_server_resolve_property(
                     srv, rpdata.object_type, rpdata.object_instance,
-                    rpdata.object_property, &retval)) {
-                /* Der Hook hat NULL geliefert, daher durch C-Standard ersetzen. */
+                    rpdata.object_property, rpdata.array_index, &retval,
+                    &error_class, &error_code)) {
+                if (!EG(exception)) {
+                    BACNET_SEND_ERROR(invoke_id, SERVICE_CONFIRMED_READ_PROPERTY,
+                        error_class, error_code);
+                }
+                goto poll_done;
             }
 
             /* Encode return value → BACNET_APPLICATION_DATA_VALUE */
@@ -2609,6 +2658,110 @@ PHP_METHOD(Bacnet_Server, poll)
             uint8_t ack_apdu[MAX_APDU];
             int ack_len = rp_ack_encode_apdu(ack_apdu, invoke_id, &rpdata);
             if (ack_len > 0) {
+                php_bacnet_server_send_apdu(&src, ack_apdu, (uint16_t)ack_len);
+            }
+
+        /* ── ReadPropertyMultiple ────────────────────────────────────── */
+        } else if (service == SERVICE_CONFIRMED_READ_PROP_MULTIPLE) {
+            const uint8_t *request = apdu + 4;
+            unsigned request_len = apdu_len - 4;
+            unsigned offset = 0;
+            uint8_t ack_apdu[MAX_APDU];
+            int ack_len = rpm_ack_encode_apdu_init(ack_apdu, invoke_id);
+            bool aborted = false;
+
+            while (offset < request_len && !aborted) {
+                BACNET_RPM_DATA rpmdata;
+                memset(&rpmdata, 0, sizeof(rpmdata));
+                int len = rpm_decode_object_id(request + offset,
+                    request_len - offset, &rpmdata);
+                if (len <= 0) {
+                    php_bacnet_security_malformed(srv->security, &src);
+                    goto poll_done;
+                }
+                offset += (unsigned)len;
+                len = rpm_ack_encode_apdu_object_begin(ack_apdu + ack_len, &rpmdata);
+                if (ack_len + len > MAX_APDU) { aborted = true; break; }
+                ack_len += len;
+                bool object_closed = false;
+
+                while (offset < request_len) {
+                    int end_len = rpm_decode_object_end(request + offset, request_len - offset);
+                    if (end_len > 0) {
+                        offset += (unsigned)end_len;
+                        len = rpm_ack_encode_apdu_object_end(ack_apdu + ack_len);
+                        if (ack_len + len > MAX_APDU) aborted = true;
+                        else ack_len += len;
+                        object_closed = true;
+                        break;
+                    }
+                    memset(&rpmdata, 0, sizeof(rpmdata));
+                    len = rpm_decode_object_property(request + offset,
+                        request_len - offset, &rpmdata);
+                    if (len <= 0) {
+                        php_bacnet_security_malformed(srv->security, &src);
+                        goto poll_done;
+                    }
+                    offset += (unsigned)len;
+
+                    const BACNET_PROPERTY_ID *properties = &rpmdata.object_property;
+                    size_t property_count = 1;
+                    if (rpmdata.object_property == PROP_ALL) {
+                        if (rpmdata.object_type == OBJECT_DEVICE
+                            && rpmdata.object_instance == srv->device_id) {
+                            properties = php_bacnet_server_device_all_properties;
+                            property_count = sizeof(php_bacnet_server_device_all_properties)
+                                / sizeof(php_bacnet_server_device_all_properties[0]);
+                        } else {
+                            properties = php_bacnet_server_object_all_properties;
+                            property_count = sizeof(php_bacnet_server_object_all_properties)
+                                / sizeof(php_bacnet_server_object_all_properties[0]);
+                        }
+                    }
+                    for (size_t i = 0; i < property_count; i++) {
+                        BACNET_ERROR_CLASS error_class;
+                        BACNET_ERROR_CODE error_code;
+                        zval retval;
+                        bool have_value = php_bacnet_server_resolve_property(srv,
+                            rpmdata.object_type, rpmdata.object_instance, properties[i],
+                            rpmdata.array_index, &retval, &error_class, &error_code);
+                        uint8_t app_buf[MAX_APDU];
+                        int app_len = 0;
+                        if (have_value) {
+                            BACNET_APPLICATION_DATA_VALUE appval;
+                            if (!zval_to_bacapp_value(&retval, &appval)
+                                || (app_len = bacapp_encode_application_data(app_buf, &appval)) <= 0) {
+                                have_value = false;
+                                error_class = ERROR_CLASS_PROPERTY;
+                                error_code = ERROR_CODE_DATATYPE_NOT_SUPPORTED;
+                            }
+                            zval_ptr_dtor(&retval);
+                        }
+                        len = rpm_ack_encode_apdu_object_property(NULL, properties[i],
+                            rpmdata.array_index)
+                            + (have_value
+                                ? rpm_ack_encode_apdu_object_property_value(NULL, app_buf, app_len)
+                                : rpm_ack_encode_apdu_object_property_error(NULL, error_class, error_code));
+                        if (ack_len + len > MAX_APDU) { aborted = true; break; }
+                        ack_len += rpm_ack_encode_apdu_object_property(ack_apdu + ack_len,
+                            properties[i], rpmdata.array_index);
+                        ack_len += have_value
+                            ? rpm_ack_encode_apdu_object_property_value(ack_apdu + ack_len, app_buf, app_len)
+                            : rpm_ack_encode_apdu_object_property_error(ack_apdu + ack_len, error_class, error_code);
+                    }
+                    if (aborted) break;
+                }
+                if (!aborted && !object_closed) {
+                    php_bacnet_security_malformed(srv->security, &src);
+                    goto poll_done;
+                }
+            }
+            if (aborted) {
+                uint8_t abort_apdu[3];
+                int abort_len = abort_encode_apdu(abort_apdu, invoke_id,
+                    ABORT_REASON_SEGMENTATION_NOT_SUPPORTED, true);
+                php_bacnet_server_send_apdu(&src, abort_apdu, (uint16_t)abort_len);
+            } else if (ack_len > 3) {
                 php_bacnet_server_send_apdu(&src, ack_apdu, (uint16_t)ack_len);
             }
 
