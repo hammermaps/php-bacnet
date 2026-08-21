@@ -28,6 +28,7 @@ jobs:
             php${{ matrix.php }}-cli \
             build-essential \
             cmake \
+            liblmdb-dev \
             valgrind
 
       - name: Cache bacnet-stack build
