@@ -206,7 +206,13 @@ stehen in **[docs/server-security.md](./docs/server-security.md)**.
 
 Vollständige Anleitung: **[docs/installation.md](./docs/installation.md)**
 
+Für den Build ist LMDB verpflichtend; unter Debian/Ubuntu muss vor dem
+Konfigurieren `liblmdb-dev` installiert sein. Die PHPT-Suite benötigt zudem
+die PHP-Erweiterung `sockets` (bei den PHP-CLI-Paketen normalerweise enthalten).
+
 ```bash
+sudo apt-get install -y liblmdb-dev php8.5-cli php8.5-dev
+
 # Submodul initialisieren und bacnet-stack bauen
 git submodule update --init --recursive
 ./scripts/build-deps.sh

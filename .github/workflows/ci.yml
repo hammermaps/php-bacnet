@@ -58,13 +58,18 @@ jobs:
 
       - name: Run PHPT tests
         run: |
+          mkdir -p "$RUNNER_TEMP/php-bacnet-lmdb"
           php${{ matrix.php }} run-tests.php \
             -d extension=modules/bacnet.so \
+            -d bacnet.cache_lmdb_path="$RUNNER_TEMP/php-bacnet-lmdb" \
             --show-diff \
             tests/ \
             2>&1
         env:
           REPORT_EXIT_STATUS: 1
+          BACNET_TEST_INTERFACE: lo
+          BACNET_TEST_LOCAL_IP: 127.0.0.1
+          BACNET_TEST_PORT: 47819
 
       - name: Memory-leak check (non-network tests only)
         run: |

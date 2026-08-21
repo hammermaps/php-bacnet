@@ -2,9 +2,11 @@
 Bacnet\Server beantwortet ReadPropertyMultiple einschliesslich PROP_ALL und APDU-Abort
 --EXTENSIONS--
 bacnet
- sockets
 --SKIPIF--
 <?php
+if (!extension_loaded('sockets')) {
+    die('skip sockets wird benötigt');
+}
 if (!getenv('BACNET_TEST_INTERFACE') || !getenv('BACNET_TEST_LOCAL_IP')) {
     die('skip BACNET_TEST_INTERFACE und BACNET_TEST_LOCAL_IP sind erforderlich');
 }
