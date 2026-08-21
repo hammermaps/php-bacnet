@@ -16,7 +16,10 @@ $types = [
     'device' => Bacnet\ObjectType::DEVICE,
 ];
 $properties = [
+    'object_identifier' => Bacnet\Property::OBJECT_IDENTIFIER,
     'object_name' => Bacnet\Property::OBJECT_NAME,
+    'object_type' => Bacnet\Property::OBJECT_TYPE,
+    'description' => Bacnet\Property::DESCRIPTION,
     'present_value' => Bacnet\Property::PRESENT_VALUE,
 ];
 

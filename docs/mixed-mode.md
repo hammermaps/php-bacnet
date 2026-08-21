@@ -36,9 +36,14 @@ $mixed->addLocalObject(new Bacnet\ObjectIdentifier(
 ));
 
 $mixed->onReadProperty(static function ($object, $property, $arrayIndex) {
-    return match ($property) {
-        Bacnet\Property::OBJECT_NAME => 'proxy_test_value',
-        Bacnet\Property::PRESENT_VALUE => 42.0,
+    $propertyId = $property instanceof Bacnet\Property ? $property->value : $property;
+
+    return match ($propertyId) {
+        Bacnet\Property::OBJECT_IDENTIFIER->value => $object,
+        Bacnet\Property::OBJECT_NAME->value => 'proxy_test_value',
+        Bacnet\Property::OBJECT_TYPE->value => Bacnet\ObjectType::ANALOG_VALUE->value,
+        Bacnet\Property::DESCRIPTION->value => 'Lokaler Testwert',
+        Bacnet\Property::PRESENT_VALUE->value => 42.0,
         default => null,
     };
 });
@@ -60,6 +65,26 @@ while (true) {
 Die von `whoIs()` gelieferten `Device`-Objekte behalten eine Referenz auf den
 `MixedServer`. Ihre Lese- und Schreibmethoden verwenden deshalb automatisch
 denselben Socket. Die eigene Geräte-ID wird aus Discovery-Ergebnissen entfernt.
+
+## Lokale Objekte und ReadPropertyMultiple
+
+Ein Objekt muss vor jeder Serverantwort mit `addLocalObject()` registriert
+sein. Anfragen für nicht registrierte Objekte erhalten
+`ERROR_CLASS_OBJECT: ERROR_CODE_UNKNOWN_OBJECT`.
+
+`Server` und `MixedServer` beantworten neben `ReadProperty` auch
+`ReadPropertyMultiple` (RPM). Eine RPM-Anfrage kann mehrere Properties von
+mehreren Objekten enthalten; jede Property bleibt dabei dem umschließenden
+Objekt zugeordnet. `PROP_ALL` fragt bei lokalen Objekten
+`Object_Identifier`, `Object_Name`, `Object_Type`, `Description` und
+`Present_Value` ab. Der Callback sollte diese Properties wie im Beispiel
+liefern. Für nicht unterstützte Properties wird ein PropertyAccessError nur
+für den betreffenden Eintrag kodiert; die übrigen RPM-Ergebnisse bleiben
+erhalten.
+
+Callbacks erhalten bekannte Properties als `Bacnet\Property` und unbekannte
+oder herstellerspezifische IDs als `int`. Das Normalisieren auf
+`$propertyId`, wie oben gezeigt, verhindert deshalb fehlerhafte Vergleiche.
 
 ## Queue und Event-Loop
 

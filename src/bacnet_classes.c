@@ -2680,6 +2680,11 @@ PHP_METHOD(Bacnet_Server, poll)
                     goto poll_done;
                 }
                 offset += (unsigned)len;
+                /* rpm_decode_object_property() decodes only the property
+                 * reference.  Keep the enclosing object reference because
+                 * the per-property structure is reset below. */
+                BACNET_OBJECT_TYPE request_object_type = rpmdata.object_type;
+                uint32_t request_object_instance = rpmdata.object_instance;
                 len = rpm_ack_encode_apdu_object_begin(ack_apdu + ack_len, &rpmdata);
                 if (ack_len + len > MAX_APDU) { aborted = true; break; }
                 ack_len += len;
@@ -2703,6 +2708,9 @@ PHP_METHOD(Bacnet_Server, poll)
                         goto poll_done;
                     }
                     offset += (unsigned)len;
+
+                    rpmdata.object_type = request_object_type;
+                    rpmdata.object_instance = request_object_instance;
 
                     const BACNET_PROPERTY_ID *properties = &rpmdata.object_property;
                     size_t property_count = 1;
