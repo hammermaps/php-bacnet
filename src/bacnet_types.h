@@ -139,6 +139,7 @@ static inline php_bacnet_objectref_obj *php_bacnet_objectref_from_obj(zend_objec
 typedef struct {
 	php_bacnet_client *client;
 	uint32_t device_id;
+	uint16_t vendor_id;
 	bool auto_iam;
 	bool read_handler_set;
 	bool write_handler_set;
@@ -148,6 +149,12 @@ typedef struct {
 	zval write_handler_zv;
 	HashTable *local_objects; /* key=(type<<22|instance), IS_TRUE */
 	php_bacnet_security *security;
+	zend_string *object_name;
+	zend_string *vendor_name;
+	zend_string *model_name;
+	zend_string *description;
+	zend_string *firmware_revision;
+	zend_string *application_software_version;
 	zend_object std;
 } php_bacnet_server_obj;
 

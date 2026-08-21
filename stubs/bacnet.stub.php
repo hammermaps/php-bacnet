@@ -430,6 +430,21 @@ namespace Bacnet {
         public function setAutoIAm(bool $enabled): void {}
 
         /**
+         * Set metadata for the automatically provided DEVICE object.
+         * vendorId, vendorName and modelName are required. Optional keys are
+         * objectName, description, firmwareRevision and applicationSoftwareVersion.
+         *
+         * @param array<string, int|string> $info
+         * @throws \ValueError
+         */
+        public function setDeviceInfo(array $info): void {}
+
+        /**
+         * Send an I-Am broadcast immediately, independently of setAutoIAm().
+         */
+        public function announce(): void {}
+
+        /**
          * Override security settings for this instance. Unknown keys and invalid
          * values throw ValueError. Existing token and block state is reset.
          * Unspecified options retain their current values.

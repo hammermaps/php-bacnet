@@ -42,8 +42,27 @@ $port = envInt('BACNET_DEMO_PORT', 47_808, 1, 65_535);
 $statsSeconds = envInt('BACNET_DEMO_STATS_SECONDS', 10, 1, 3_600);
 $includeSources = getenv('BACNET_DEMO_INCLUDE_SOURCES') === '1';
 $allowWrites = getenv('BACNET_DEMO_ALLOW_WRITE') === '1';
+$vendorIdRaw = getenv('BACNET_DEMO_VENDOR_ID');
+$vendorName = getenv('BACNET_DEMO_VENDOR_NAME');
+$modelName = getenv('BACNET_DEMO_MODEL_NAME');
+if ($vendorIdRaw === false || $vendorName === false || $modelName === false
+    || $vendorName === '' || $modelName === '') {
+    throw new InvalidArgumentException(
+        'BACNET_DEMO_VENDOR_ID, BACNET_DEMO_VENDOR_NAME und BACNET_DEMO_MODEL_NAME sind erforderlich.',
+    );
+}
+$vendorId = envInt('BACNET_DEMO_VENDOR_ID', 0, 1, 65_535);
 
 $server = new Server($deviceId, $interface, $port);
+$server->setDeviceInfo([
+    'vendorId' => $vendorId,
+    'vendorName' => $vendorName,
+    'modelName' => $modelName,
+    'objectName' => 'php-bacnet Security-Demo',
+    'description' => 'Abgesicherter PHP-BACnet-Server',
+    'firmwareRevision' => phpversion('bacnet') ?: 'unknown',
+    'applicationSoftwareVersion' => phpversion('bacnet') ?: 'unknown',
+]);
 $server->setSecurityOptions([
     'allowed_networks' => envCidrs(
         'BACNET_DEMO_ALLOWED_NETWORKS',
@@ -85,6 +104,8 @@ if ($allowWrites) {
         printf("[%s] PRESENT_VALUE = %.2f\n", date('c'), $presentValue);
     });
 }
+
+$server->announce();
 
 printf(
     "Security-Server Device %d auf %s:%d; Writes %s.\n",

@@ -15,10 +15,15 @@ LMDB als persistentes Standard-L2.
 `security_server.php` zeigt eine VLAN-Allowlist, eine optionale Denylist,
 effektive Optionswerte und die periodische Ausgabe aggregierter
 Sicherheitsstatistiken. Standardmäßig bindet es `net3:47808`, stellt
-`ANALOG_VALUE:1` lesbar bereit und akzeptiert nur `192.168.202.0/24`:
+`ANALOG_VALUE:1` lesbar bereit, sendet beim Start ein I-Am und akzeptiert nur
+`192.168.202.0/24`. Die Demo verlangt eigene, registrierte Herstellerdaten:
 
 ```bash
-BACNET_DEMO_INTERFACE=net3 php examples/security_server.php
+BACNET_DEMO_INTERFACE=net3 \
+BACNET_DEMO_VENDOR_ID=123 \
+BACNET_DEMO_VENDOR_NAME='Ihr Herstellername' \
+BACNET_DEMO_MODEL_NAME='Ihr Modellname' \
+php examples/security_server.php
 ```
 
 Vollständig konfiguriertes Beispiel:
@@ -27,6 +32,9 @@ Vollständig konfiguriertes Beispiel:
 BACNET_DEMO_INTERFACE=net3 \
 BACNET_DEMO_DEVICE_ID=9001 \
 BACNET_DEMO_PORT=47808 \
+BACNET_DEMO_VENDOR_ID=123 \
+BACNET_DEMO_VENDOR_NAME='Ihr Herstellername' \
+BACNET_DEMO_MODEL_NAME='Ihr Modellname' \
 BACNET_DEMO_ALLOWED_NETWORKS=192.168.202.0/24,10.20.30.15/32 \
 BACNET_DEMO_DENIED_NETWORKS=192.168.202.250/32 \
 BACNET_DEMO_STATS_SECONDS=10 \
@@ -39,6 +47,9 @@ php examples/security_server.php
 | `BACNET_DEMO_INTERFACE` | `net3` | Linux-Interface-Name. |
 | `BACNET_DEMO_DEVICE_ID` | `9001` | Lokale BACnet-Geräteinstanz. |
 | `BACNET_DEMO_PORT` | `47808` | Lokaler UDP-Port. |
+| `BACNET_DEMO_VENDOR_ID` | – | Erforderliche, registrierte BACnet-Hersteller-ID (1 .. 65535). |
+| `BACNET_DEMO_VENDOR_NAME` | – | Erforderlicher Herstellername. |
+| `BACNET_DEMO_MODEL_NAME` | – | Erforderlicher Modellname. |
 | `BACNET_DEMO_ALLOWED_NETWORKS` | `192.168.202.0/24` | Kommagetrennte IPv4-CIDRs; leer erlaubt alle. |
 | `BACNET_DEMO_DENIED_NETWORKS` | leer | Kommagetrennte gesperrte IPv4-CIDRs. |
 | `BACNET_DEMO_STATS_SECONDS` | `10` | Intervall der JSON-Statistikausgabe. |
@@ -67,10 +78,15 @@ der Prozess regelmäßig nach externen Geräten.
 ```bash
 BACNET_DEMO_INTERFACE=net3 \
 BACNET_DEMO_DEVICE_ID=5 \
+BACNET_DEMO_VENDOR_ID=123 \
+BACNET_DEMO_VENDOR_NAME='Ihr Herstellername' \
+BACNET_DEMO_MODEL_NAME='Ihr Modellname' \
 php examples/mixed_daemon.php
 ```
 
-Optionale Variablen sind `BACNET_DEMO_PORT` (Standard `47808`),
+`BACNET_DEMO_VENDOR_ID`, `BACNET_DEMO_VENDOR_NAME` und `BACNET_DEMO_MODEL_NAME`
+sind erforderlich und müssen die eigenen, registrierten Herstellerdaten
+enthalten. Optionale Variablen sind `BACNET_DEMO_PORT` (Standard `47808`),
 `BACNET_DEMO_SWITCH_SECONDS` (Standard `6`) und
 `BACNET_DEMO_DISCOVERY_SECONDS` (Standard `60`).
 `BACNET_DEMO_SECURITY_STATS_SECONDS` steuert die Ausgabe geerbter

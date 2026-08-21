@@ -1,7 +1,7 @@
 # php-bacnet — BACnet/IP Extension for PHP 8.4+
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
-[![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.0-green)](#)
+[![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
 **php-bacnet** ist eine native C-Erweiterung für PHP 8.4 und 8.5, die vollständige

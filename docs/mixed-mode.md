@@ -30,6 +30,14 @@ $mixed = new Bacnet\MixedServer(
     port: 47808,
 );
 
+$mixed->setDeviceInfo([
+    'vendorId' => 123,
+    'vendorName' => 'Ihr eingetragener Herstellername',
+    'modelName' => 'Ihr Modellname',
+    'objectName' => 'BACnet-Gateway',
+    'description' => 'Mixed-Mode-Demo',
+]);
+
 $mixed->addLocalObject(new Bacnet\ObjectIdentifier(
     Bacnet\ObjectType::ANALOG_VALUE,
     1,
@@ -57,10 +65,18 @@ if ($devices !== []) {
     );
 }
 
+$mixed->announce();
+
 while (true) {
     $mixed->poll(100);
 }
 ```
+
+`vendorId`, `vendorName` und `modelName` sind für `setDeviceInfo()` gemeinsam
+erforderlich. Die Hersteller-ID muss eine zugewiesene BACnet-ID zwischen `1`
+und `65535` sein. Nach dem Einrichten der Callbacks kann `$mixed->announce()`
+einen sofortigen I-Am-Broadcast auslösen; dies funktioniert auch bei
+deaktiviertem `setAutoIAm(false)`.
 
 Die von `whoIs()` gelieferten `Device`-Objekte behalten eine Referenz auf den
 `MixedServer`. Ihre Lese- und Schreibmethoden verwenden deshalb automatisch
@@ -71,6 +87,10 @@ denselben Socket. Die eigene Geräte-ID wird aus Discovery-Ergebnissen entfernt.
 Ein Objekt muss vor jeder Serverantwort mit `addLocalObject()` registriert
 sein. Anfragen für nicht registrierte Objekte erhalten
 `ERROR_CLASS_OBJECT: ERROR_CODE_UNKNOWN_OBJECT`.
+
+Das `DEVICE`-Objekt stellt die Erweiterung automatisch bereit und darf nicht
+mit `addLocalObject()` registriert werden. Seine `OBJECT_LIST` enthält stets
+das DEVICE selbst und alle aktuell registrierten lokalen Objekte.
 
 `Server` und `MixedServer` beantworten neben `ReadProperty` auch
 `ReadPropertyMultiple` (RPM). Eine RPM-Anfrage kann mehrere Properties von

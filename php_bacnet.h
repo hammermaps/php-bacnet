@@ -4,12 +4,11 @@
 extern zend_module_entry bacnet_module_entry;
 #define phpext_bacnet_ptr &bacnet_module_entry
 
-#define PHP_BACNET_VERSION "0.1.0"
+#define PHP_BACNET_VERSION "0.1.1"
 #define PHP_BACNET_EXTNAME "bacnet"
 
 /* Shared implementation limits and protocol defaults. */
 #define PHP_BACNET_DEFAULT_PORT 47808
-#define PHP_BACNET_BIP_PORT_HEX 0xBAC0
 #define PHP_BACNET_IP_ADDRESS_LENGTH 16
 #define PHP_BACNET_ERROR_MESSAGE_LENGTH 256
 #define PHP_BACNET_MAX_COLLECTED_DEVICES 64

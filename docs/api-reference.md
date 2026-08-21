@@ -61,7 +61,7 @@ und stellt eine typsichere, objektorientierte API im Namensraum `Bacnet\` bereit
 | WeeklySchedule | WEEKLY_SCHEDULE lesen (Dekodierung) |
 | TrendLog | LOG_BUFFER als `TrendLogRecord[]` lesen |
 
-**Einschränkungen in v0.1.0:**
+**Einschränkungen in v0.1.1:**
 
 - Genau ein `Client` oder `Server` pro PHP-Prozess (prozess-globaler UDP-Socket).
 - `whoIs()` sammelt maximal 64 Geräte pro Aufruf.
@@ -731,6 +731,11 @@ für dieses Objekt werden an die installierten Callbacks weitergeleitet.
 ```php
 <?php
 $server = new Bacnet\Server(deviceId: 9001, bindInterface: 'eth0');
+$server->setDeviceInfo([
+    'vendorId' => 123,
+    'vendorName' => 'Ihr eingetragener Herstellername',
+    'modelName' => 'Ihr Modellname',
+]);
 $server->addLocalObject(new Bacnet\ObjectIdentifier(Bacnet\ObjectType::ANALOG_VALUE, 1));
 $server->addLocalObject(new Bacnet\ObjectIdentifier(Bacnet\ObjectType::BINARY_VALUE, 1));
 ```
@@ -744,6 +749,30 @@ public function removeLocalObject(Bacnet\ObjectIdentifier $oid): void
 ```
 
 Entfernt ein zuvor registriertes lokales Objekt.
+
+Das DEVICE-Objekt wird automatisch bereitgestellt und darf nicht als lokales
+Objekt registriert werden. Seine `OBJECT_LIST` enthält immer das DEVICE-Objekt
+und die aktuell registrierten lokalen Objekte; Index `0`, einzelne Indizes und
+`BACNET_ARRAY_ALL` werden unterstützt.
+
+---
+
+#### Bacnet\Server::setDeviceInfo()
+
+```php
+public function setDeviceInfo(array $info): void
+```
+
+Setzt die Metadaten des automatisch bereitgestellten DEVICE-Objekts. Erforderlich
+sind `vendorId`, `vendorName` und `modelName`; optional sind `objectName`,
+`description`, `firmwareRevision` und `applicationSoftwareVersion`. Alle
+Stringwerte müssen nicht leer sein. `vendorId` muss ein zugewiesener BACnet-
+Hersteller-Identifier zwischen `1` und `65535` sein; `0` ist nicht zulässig.
+Unbekannte Schlüssel und ungültige Werte lösen `ValueError` aus.
+
+`PROTOCOL_OBJECT_TYPES_SUPPORTED` und `OBJECT_LIST` werden durch die Erweiterung
+aus der aktuellen Objektregistrierung erzeugt und können nicht per Read-Callback
+überschrieben werden.
 
 ---
 
@@ -878,6 +907,17 @@ public function setAutoIAm(bool $enabled): void
 
 Aktiviert oder deaktiviert automatische I-Am-Antworten auf Who-Is-Broadcasts.
 Standardmäßig aktiviert.
+
+#### Bacnet\Server::announce()
+
+```php
+public function announce(): void
+```
+
+Sendet sofort einen I-Am-Broadcast. Die Methode ist unabhängig von
+`setAutoIAm()` und eignet sich etwa nach dem Start oder einer Konfigurationsänderung.
+Nicht unterstützte bestätigte BACnet-Dienste beantwortet der Server mit dem
+standardkonformen Reject-Grund `unrecognized-service`.
 
 ---
 
@@ -1909,4 +1949,4 @@ Das vollständige, per Umgebungsvariablen konfigurierbare Beispiel liegt in
 
 ---
 
-*Dokumentation generiert für php-bacnet v0.1.0 — bacnet-stack 1.5.0 (5afc5c9a)*
+*Dokumentation generiert für php-bacnet v0.1.1 — bacnet-stack 1.5.1 (3a74c74a)*

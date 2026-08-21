@@ -110,7 +110,7 @@ typedef struct {
 
 ## bacnet-stack Submodule
 
-Pinned commit: `5afc5c9a54b2579f61ec5959c58a8ce595bb55e8` (bacnet-stack-1.5.0-109-g5afc5c9a5)
+Pinned commit: `3a74c74a8139526e34da32c6cc41ed7c71aaded5` (bacnet-stack-1.5.1)
 
 Do not update without a changelog entry and deliberate `git submodule update`.
 

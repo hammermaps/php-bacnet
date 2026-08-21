@@ -107,7 +107,7 @@ git submodule update --init --recursive
 
 # Submodul-Version prüfen
 git -C deps/bacnet-stack log --oneline -1
-# → 5afc5c9a5 ... (bacnet-stack-1.5.0)
+# → 3a74c74a8 ... (bacnet-stack-1.5.1)
 ```
 
 ---
@@ -459,7 +459,7 @@ echo 'Klassen: ', implode(', ', \$info->getClassNames()), PHP_EOL;
 Erwartete Ausgabe:
 ```
 Extension geladen: JA
-Version: 0.1.0
+Version: 0.1.1
 Klassen: Bacnet\Client, Bacnet\Device, Bacnet\ObjectRef, Bacnet\Server, ...
 ```
 
@@ -485,8 +485,8 @@ php8.5 -d extension=modules/bacnet.so -r "phpinfo();" | grep -A 10 "bacnet"
 Erwartete Ausgabe:
 ```
 BACnet/IP support => enabled
-Extension version => 0.1.0
-bacnet-stack      => 1.5.0 (5afc5c9a)
+Extension version => 0.1.1
+bacnet-stack      => 1.5.1 (3a74c74a)
 
 bacnet.default_interface => 0.0.0.0 => 0.0.0.0
 bacnet.default_port      => 47808   => 47808
@@ -582,4 +582,4 @@ Ziel: **0 definite Leaks** nach 1000 Create/Destroy-Zyklen.
 
 ---
 
-*Dokumentation für php-bacnet v0.1.0 — bacnet-stack 1.5.0 (5afc5c9a)*
+*Dokumentation für php-bacnet v0.1.1 — bacnet-stack 1.5.1 (3a74c74a)*
