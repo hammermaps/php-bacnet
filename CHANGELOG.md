@@ -6,6 +6,11 @@ All notable changes to php-bacnet are documented here.
 
 ### Added
 
+- `Device::subscribeCOV()` meldet einzelne Properties entfernter Geräte für
+  BACnet-COV an. `Client` und `MixedServer` verarbeiten eingehende
+  Benachrichtigungen mit `onCovNotification()`; `Client::poll()` verarbeitet
+  sie im langlebigen Client-Prozess.
+
 - POSIX-Shared-Memory-L1 für Client und MixedServer sowie LMDB als persistentes
   Standard-L2 ergänzt.
 - `CacheBackendInterface`, Cacheoptionen, Statistiken, Refresh-Parameter und

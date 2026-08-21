@@ -96,6 +96,8 @@ php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, ch
 	efree(bip_iface);
 
 	client->socket_fd = bip_get_socket();
+	ZVAL_UNDEF(&client->cov_handler_zv);
+	client->next_cov_process_id = 1;
 	client->initialized = true;
 
 	return client;
@@ -111,6 +113,10 @@ void php_bacnet_client_destroy(php_bacnet_client *client) {
 	if (!client)
 		return;
 	php_bacnet_cache_destroy(client->cache);
+	if (client->cov_handler_set) {
+		zval_ptr_dtor(&client->cov_handler_zv);
+		client->cov_handler_set = false;
+	}
 	client->cache = NULL;
 	if (client->initialized) {
 		bip_cleanup();
