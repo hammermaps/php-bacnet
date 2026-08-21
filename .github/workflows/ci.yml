@@ -76,7 +76,6 @@ jobs:
           BACNET_TEST_INTERFACE: lo
           BACNET_TEST_LOCAL_IP: 127.0.0.1
           BACNET_TEST_PORT: 47819
-          TEST_PHP_ARGS: -d extension=sockets
 
       - name: RPM loopback test
         run: |
