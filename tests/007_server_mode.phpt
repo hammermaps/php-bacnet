@@ -4,42 +4,48 @@ Bacnet\Server class API — construction, methods, callbacks, guards (Phase 6)
 bacnet
 --FILE--
 <?php
+function php_bacnet_expect(bool $condition, string $message = "Expectation failed"): void {
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
 // --- Class exists ---
-assert(class_exists('Bacnet\Server'), 'Bacnet\Server class exists');
+php_bacnet_expect(class_exists('Bacnet\Server'), 'Bacnet\Server class exists');
 echo "class exists: OK\n";
 
 // --- Constructor reflection ---
 $rc = new ReflectionClass('Bacnet\Server');
 $ctor = $rc->getConstructor();
-assert($ctor !== null, 'constructor exists');
-assert($ctor->getNumberOfRequiredParameters() === 1, 'one required param (deviceId)');
-assert($ctor->getNumberOfParameters() === 3, '3 total params');
+php_bacnet_expect($ctor !== null, 'constructor exists');
+php_bacnet_expect($ctor->getNumberOfRequiredParameters() === 1, 'one required param (deviceId)');
+php_bacnet_expect($ctor->getNumberOfParameters() === 3, '3 total params');
 $params = $ctor->getParameters();
-assert($params[0]->getName() === 'deviceId',       'param 0: deviceId');
-assert($params[1]->getName() === 'bindInterface',  'param 1: bindInterface');
-assert($params[2]->getName() === 'port',           'param 2: port');
-assert($params[1]->getDefaultValue() === '0.0.0.0', 'bindInterface default 0.0.0.0');
-assert($params[2]->getDefaultValue() === 47808,     'port default 47808');
+php_bacnet_expect($params[0]->getName() === 'deviceId',       'param 0: deviceId');
+php_bacnet_expect($params[1]->getName() === 'bindInterface',  'param 1: bindInterface');
+php_bacnet_expect($params[2]->getName() === 'port',           'param 2: port');
+php_bacnet_expect($params[1]->getDefaultValue() === '0.0.0.0', 'bindInterface default 0.0.0.0');
+php_bacnet_expect($params[2]->getDefaultValue() === 47808,     'port default 47808');
 echo "constructor signature: OK\n";
 
 // --- Methods present ---
 $methods = ['addLocalObject', 'removeLocalObject', 'onReadProperty',
             'onWriteProperty', 'setAutoIAm', 'poll'];
 foreach ($methods as $m) {
-    assert(method_exists('Bacnet\Server', $m), "$m missing");
+    php_bacnet_expect(method_exists('Bacnet\Server', $m), "$m missing");
 }
 echo "all methods present: OK\n";
 
 // --- Method signatures ---
 $rm = new ReflectionMethod('Bacnet\Server', 'addLocalObject');
-assert($rm->getNumberOfRequiredParameters() === 1, 'addLocalObject requires 1');
+php_bacnet_expect($rm->getNumberOfRequiredParameters() === 1, 'addLocalObject requires 1');
 
 $rm = new ReflectionMethod('Bacnet\Server', 'poll');
-assert($rm->getNumberOfRequiredParameters() === 0, 'poll requires 0');
-assert($rm->getParameters()[0]->getDefaultValue() === 0, 'poll timeoutMs default=0');
+php_bacnet_expect($rm->getNumberOfRequiredParameters() === 0, 'poll requires 0');
+php_bacnet_expect($rm->getParameters()[0]->getDefaultValue() === 0, 'poll timeoutMs default=0');
 
 $rm = new ReflectionMethod('Bacnet\Server', 'setAutoIAm');
-assert($rm->getNumberOfRequiredParameters() === 1, 'setAutoIAm requires 1');
+php_bacnet_expect($rm->getNumberOfRequiredParameters() === 1, 'setAutoIAm requires 1');
 echo "method signatures: OK\n";
 
 // --- poll() on uninitialized throws Bacnet\Exception ---
@@ -47,9 +53,9 @@ $srv_class = new ReflectionClass('Bacnet\Server');
 $srv_uninit = $srv_class->newInstanceWithoutConstructor();
 try {
     $srv_uninit->poll(0);
-    assert(false, 'poll without construct should throw');
+    php_bacnet_expect(false, 'poll without construct should throw');
 } catch (Bacnet\Exception $e) {
-    assert(str_contains($e->getMessage(), 'not initialized'), 'correct error message');
+    php_bacnet_expect(str_contains($e->getMessage(), 'not initialized'), 'correct error message');
 }
 echo "poll without init throws: OK\n";
 
@@ -95,7 +101,7 @@ try {
     $srv2 = $srv_class->newInstanceWithoutConstructor();
     try {
         $srv2->onReadProperty('not_a_real_function_xyz');
-        assert(false, 'invalid callable should throw');
+        php_bacnet_expect(false, 'invalid callable should throw');
     } catch (Bacnet\Exception $e2) {
         echo "invalid callable rejected: OK\n";
     }

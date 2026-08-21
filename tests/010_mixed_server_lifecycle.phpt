@@ -4,13 +4,19 @@ Bacnet\MixedServer lifecycle, callbacks and singleton guard
 bacnet
 --FILE--
 <?php
+function php_bacnet_expect(bool $condition, string $message = "Expectation failed"): void {
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
 $reflection = new ReflectionClass(Bacnet\MixedServer::class);
 $uninitialized = $reflection->newInstanceWithoutConstructor();
-assert($uninitialized->getPendingPduCount() === 0);
+php_bacnet_expect($uninitialized->getPendingPduCount() === 0);
 
 try {
     $mixed = new Bacnet\MixedServer(4_194_000, '0.0.0.0', 47808);
-    assert($mixed instanceof Bacnet\Server);
+    php_bacnet_expect($mixed instanceof Bacnet\Server);
 
     $object = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::ANALOG_VALUE, 1);
     $mixed->addLocalObject($object);
@@ -21,9 +27,9 @@ try {
 
     try {
         new Bacnet\Client();
-        assert(false, 'MixedServer must hold the singleton socket');
+        php_bacnet_expect(false, 'MixedServer must hold the singleton socket');
     } catch (Error $error) {
-        assert(str_contains($error->getMessage(), 'Only one'));
+        php_bacnet_expect(str_contains($error->getMessage(), 'Only one'));
     }
 
     unset($mixed);

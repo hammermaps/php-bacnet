@@ -228,6 +228,35 @@ echo "extension=bacnet.so" | sudo tee /etc/php/8.5/cli/conf.d/30-bacnet.ini
 php8.5 -m | grep bacnet
 ```
 
+## Entwicklung
+
+Die C- und Header-Dateien außerhalb von `deps/` werden mit der versionierten
+`.clang-format`-Konfiguration formatiert. `config.h` wird von diesen Befehlen
+ausgenommen, weil sie durch `configure` erzeugt wird.
+
+```bash
+# Formatieren und anschließend die Standards prüfen
+clang-format -i bacnet.c php_bacnet.h src/*.[ch] tests/c_client_test.c
+./scripts/check-coding-standards.sh
+
+# Abhängigkeit, Erweiterung und PHPT-Suite bauen bzw. ausführen
+./scripts/build-deps.sh
+phpize8.5
+./configure --with-bacnet --with-php-config=php-config8.5
+make EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter" -j"$(nproc)"
+mkdir -p /tmp/php-bacnet-lmdb-test
+php8.5 run-tests.php -d extension=modules/bacnet.so \
+    -d bacnet.cache_lmdb_path=/tmp/php-bacnet-lmdb-test tests/
+```
+
+### Extension-Lebenszyklus
+
+`bacnet` ist eine PHP-Extension (kein Zend-Extension-Modul). Der dynamische
+Build exportiert daher `get_module`; PHP prüft beim Laden API-Nummer und
+Build-ID. Die einmalige Klassen- und INI-Registrierung erfolgt in `MINIT`,
+anfragebezogene Client-Zustände werden in `RINIT` zurückgesetzt, und die
+INI-Registrierung wird in `MSHUTDOWN` aufgehoben.
+
 ---
 
 ## Konfiguration (php.ini)
