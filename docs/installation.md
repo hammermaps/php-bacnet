@@ -43,6 +43,7 @@ sudo apt-get install -y \
     build-essential \
     cmake \
     git \
+    liblmdb-dev \
     pkg-config
 ```
 
@@ -58,6 +59,23 @@ sudo apt-get install -y php8.5-dev php8.5-cli
 **PHP 8.4:**
 ```bash
 sudo apt-get install -y php8.4-dev php8.4-cli
+```
+
+### PHPT-Testabhängigkeiten
+
+Die PHPT-Suite benötigt zusätzlich die PHP-Erweiterung `sockets`; sie wird
+bei den aktuellen Debian/Ubuntu-Paketen zusammen mit `phpX.Y-cli` installiert.
+Prüfe vor einem Testlauf:
+
+```bash
+php8.5 -m | grep -E '^(bacnet|sockets)$'
+```
+
+Für die LMDB-Tests muss das konfigurierte Cache-Verzeichnis existieren und für
+den Testprozess beschreibbar sein, zum Beispiel:
+
+```bash
+install -d -m 0700 /tmp/php-bacnet-lmdb-test
 ```
 
 > **Wichtig:** Nur **NTS** (Non-Thread-Safe) wird unterstützt. Prüfen:
