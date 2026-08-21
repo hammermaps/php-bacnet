@@ -4,8 +4,14 @@ Bacnet\MixedServer exposes compatible server and client APIs
 bacnet
 --FILE--
 <?php
-assert(class_exists(Bacnet\MixedServer::class));
-assert(is_subclass_of(Bacnet\MixedServer::class, Bacnet\Server::class));
+function php_bacnet_expect(bool $condition, string $message = "Expectation failed"): void {
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
+php_bacnet_expect(class_exists(Bacnet\MixedServer::class));
+php_bacnet_expect(is_subclass_of(Bacnet\MixedServer::class, Bacnet\Server::class));
 
 $serverMethods = [
     'addLocalObject',
@@ -16,18 +22,18 @@ $serverMethods = [
     'poll',
 ];
 foreach ($serverMethods as $method) {
-    assert(method_exists(Bacnet\MixedServer::class, $method));
+    php_bacnet_expect(method_exists(Bacnet\MixedServer::class, $method));
 }
-assert(method_exists(Bacnet\MixedServer::class, 'whoIs'));
-assert(method_exists(Bacnet\MixedServer::class, 'getPendingPduCount'));
+php_bacnet_expect(method_exists(Bacnet\MixedServer::class, 'whoIs'));
+php_bacnet_expect(method_exists(Bacnet\MixedServer::class, 'getPendingPduCount'));
 
 $method = new ReflectionMethod(Bacnet\MixedServer::class, 'whoIs');
-assert($method->getNumberOfRequiredParameters() === 0);
-assert($method->getNumberOfParameters() === 4);
+php_bacnet_expect($method->getNumberOfRequiredParameters() === 0);
+php_bacnet_expect($method->getNumberOfParameters() === 4);
 
 $uninitialized = (new ReflectionClass(Bacnet\MixedServer::class))
     ->newInstanceWithoutConstructor();
-assert($uninitialized->getPendingPduCount() === 0);
+php_bacnet_expect($uninitialized->getPendingPduCount() === 0);
 try {
     $uninitialized->whoIs(timeoutMs: 1);
     echo "missing exception\n";
