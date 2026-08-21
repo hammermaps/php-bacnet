@@ -64,9 +64,19 @@ $mixed->onReadProperty(static function (
     Bacnet\Property|int $property,
     ?int $arrayIndex,
 ) use ($deviceId, $currentValue): mixed {
+    /* Bekannte Properties kommen als Enum, herstellerspezifische als int.
+     * Für einen einheitlichen Callback immer über die numerische ID verzweigen. */
+    $propertyId = $property instanceof Bacnet\Property ? $property->value : $property;
+
     if ($object->getType() === Bacnet\ObjectType::DEVICE
         && $object->getInstance() === $deviceId) {
-        return $property === Bacnet\Property::OBJECT_NAME ? 'proxy' : null;
+        return match ($propertyId) {
+            Bacnet\Property::OBJECT_IDENTIFIER->value => $object,
+            Bacnet\Property::OBJECT_NAME->value => 'proxy',
+            Bacnet\Property::OBJECT_TYPE->value => Bacnet\ObjectType::DEVICE->value,
+            Bacnet\Property::DESCRIPTION->value => 'php-bacnet MixedServer-Demo',
+            default => null, // Weitere DEVICE-Standardwerte liefert die Erweiterung.
+        };
     }
 
     if ($object->getType() !== Bacnet\ObjectType::ANALOG_VALUE
@@ -74,9 +84,12 @@ $mixed->onReadProperty(static function (
         return null;
     }
 
-    return match ($property) {
-        Bacnet\Property::OBJECT_NAME => 'proxy_test_value',
-        Bacnet\Property::PRESENT_VALUE => $currentValue(),
+    return match ($propertyId) {
+        Bacnet\Property::OBJECT_IDENTIFIER->value => $object,
+        Bacnet\Property::OBJECT_NAME->value => 'proxy_test_value',
+        Bacnet\Property::OBJECT_TYPE->value => Bacnet\ObjectType::ANALOG_VALUE->value,
+        Bacnet\Property::DESCRIPTION->value => 'Wechselnder Testwert',
+        Bacnet\Property::PRESENT_VALUE->value => $currentValue(),
         default => null,
     };
 });

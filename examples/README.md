@@ -58,8 +58,11 @@ Die erste JSON-Zeile enthält `getSecurityOptions()`, spätere Zeilen enthalten
 ## Mixed-Daemon
 
 `mixed_daemon.php` stellt `DEVICE:5` mit dem Namen `proxy` und
-`ANALOG_VALUE:1` als wechselnden Testwert bereit. Gleichzeitig sucht der
-Prozess regelmäßig nach externen Geräten.
+`ANALOG_VALUE:1` als wechselnden Testwert bereit. Die Demo beantwortet für
+beide Objekte `Object_Identifier`, `Object_Name`, `Object_Type`,
+`Description` und für den Analogwert `Present_Value`; sie eignet sich daher
+auch zum Testen von `ReadPropertyMultiple` mit `PROP_ALL`. Gleichzeitig sucht
+der Prozess regelmäßig nach externen Geräten.
 
 ```bash
 BACNET_DEMO_INTERFACE=net3 \
@@ -91,4 +94,5 @@ php examples/mixed_read.php 200 analog_value 10110 present_value
 ```
 
 Unterstützt werden die grundlegenden Analog-, Binär- und Device-Objekttypen
-sowie `object_name` und `present_value`.
+sowie `object_identifier`, `object_name`, `object_type`, `description` und
+`present_value`.

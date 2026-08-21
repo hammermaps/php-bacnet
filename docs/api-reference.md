@@ -770,6 +770,10 @@ ReadProperty-ACK zurückgesendet. Akzeptierte Typen: `bool`, `int`, `float`,
 `string`, `null`, `Bacnet\Value`, `Bacnet\BitString`, `Bacnet\Date`,
 `Bacnet\Time`, `Bacnet\ObjectIdentifier`.
 
+`$property` ist für bekannte IDs ein `Bacnet\Property`, für unbekannte oder
+herstellerspezifische IDs ein `int`. Callbacks, die beide Fälle behandeln,
+normalisieren die ID deshalb zuerst.
+
 **Beispiel**
 
 ```php
@@ -781,13 +785,48 @@ $server->onReadProperty(function (
     Bacnet\Property|int     $property,
     ?int                    $arrayIndex,
 ) use (&$values): mixed {
-    if ($oid->getInstance() === 1 && $property === Bacnet\Property::PRESENT_VALUE) {
+    $propertyId = $property instanceof Bacnet\Property ? $property->value : $property;
+    if ($oid->getInstance() === 1 && $propertyId === Bacnet\Property::PRESENT_VALUE->value) {
         return $values[$oid->getInstance()] ?? 0.0;
     }
-    if ($property === Bacnet\Property::OBJECT_NAME) {
+    if ($propertyId === Bacnet\Property::OBJECT_NAME->value) {
         return "Sensor-{$oid->getInstance()}";
     }
     return null;
+});
+```
+
+#### ReadPropertyMultiple (RPM)
+
+`Server` und `MixedServer` unterstützen `ReadPropertyMultiple` zusätzlich zu
+`ReadProperty`. Mehrere Objekte und mehrere Properties pro Objekt werden in
+einer Anfrage beantwortet. Die Server-Service-Liste kündigt RPM entsprechend
+an.
+
+- Jedes angefragte Objekt muss vorher per `addLocalObject()` registriert sein;
+  andernfalls erhält genau dieser Eintrag `ERROR_CLASS_OBJECT` /
+  `ERROR_CODE_UNKNOWN_OBJECT`.
+- Bei `PROP_ALL` fragt der Server für lokale Objekte `Object_Identifier`,
+  `Object_Name`, `Object_Type`, `Description` und `Present_Value` ab. Der
+  Callback sollte diese Werte bereitstellen.
+- Liefert der Callback für eine Property `null`, wird für diesen RPM-Eintrag
+  ein PropertyAccessError kodiert; andere Einträge derselben Antwort bleiben
+  gültig.
+
+Für ein brauchbares `PROP_ALL` eines lokalen Analogwerts:
+
+```php
+$server->onReadProperty(static function ($oid, $property) {
+    $propertyId = $property instanceof Bacnet\Property ? $property->value : $property;
+
+    return match ($propertyId) {
+        Bacnet\Property::OBJECT_IDENTIFIER->value => $oid,
+        Bacnet\Property::OBJECT_NAME->value => 'Aussentemperatur',
+        Bacnet\Property::OBJECT_TYPE->value => Bacnet\ObjectType::ANALOG_VALUE->value,
+        Bacnet\Property::DESCRIPTION->value => 'Temperatur am Gebaeude',
+        Bacnet\Property::PRESENT_VALUE->value => 21.5,
+        default => null,
+    };
 });
 ```
 
