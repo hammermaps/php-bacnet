@@ -67,10 +67,15 @@ der Prozess regelmäßig nach externen Geräten.
 ```bash
 BACNET_DEMO_INTERFACE=net3 \
 BACNET_DEMO_DEVICE_ID=5 \
+BACNET_DEMO_VENDOR_ID=123 \
+BACNET_DEMO_VENDOR_NAME='Ihr Herstellername' \
+BACNET_DEMO_MODEL_NAME='Ihr Modellname' \
 php examples/mixed_daemon.php
 ```
 
-Optionale Variablen sind `BACNET_DEMO_PORT` (Standard `47808`),
+`BACNET_DEMO_VENDOR_ID`, `BACNET_DEMO_VENDOR_NAME` und `BACNET_DEMO_MODEL_NAME`
+sind erforderlich und müssen die eigenen, registrierten Herstellerdaten
+enthalten. Optionale Variablen sind `BACNET_DEMO_PORT` (Standard `47808`),
 `BACNET_DEMO_SWITCH_SECONDS` (Standard `6`) und
 `BACNET_DEMO_DISCOVERY_SECONDS` (Standard `60`).
 `BACNET_DEMO_SECURITY_STATS_SECONDS` steuert die Ausgabe geerbter

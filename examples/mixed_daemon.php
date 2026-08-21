@@ -39,6 +39,16 @@ $port = envInt('BACNET_DEMO_PORT', 47_808, 1, 65_535);
 $switchSeconds = envInt('BACNET_DEMO_SWITCH_SECONDS', 6, 1, 3_600);
 $discoverySeconds = envInt('BACNET_DEMO_DISCOVERY_SECONDS', 60, 5, 3_600);
 $statsSeconds = envInt('BACNET_DEMO_SECURITY_STATS_SECONDS', 60, 1, 3_600);
+$vendorIdRaw = getenv('BACNET_DEMO_VENDOR_ID');
+$vendorName = getenv('BACNET_DEMO_VENDOR_NAME');
+$modelName = getenv('BACNET_DEMO_MODEL_NAME');
+if ($vendorIdRaw === false || $vendorName === false || $modelName === false
+    || $vendorName === '' || $modelName === '') {
+    throw new InvalidArgumentException(
+        'BACNET_DEMO_VENDOR_ID, BACNET_DEMO_VENDOR_NAME und BACNET_DEMO_MODEL_NAME sind erforderlich.',
+    );
+}
+$vendorId = envInt('BACNET_DEMO_VENDOR_ID', 0, 1, 65_535);
 
 $mixed = new Bacnet\MixedServer($deviceId, $interface, $port);
 $securityOptions = [];
@@ -53,10 +63,17 @@ if ($deniedNetworks !== null) {
 if ($securityOptions !== []) {
     $mixed->setSecurityOptions($securityOptions);
 }
-$deviceObject = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::DEVICE, $deviceId);
 $testObject = new Bacnet\ObjectIdentifier(Bacnet\ObjectType::ANALOG_VALUE, 1);
-$mixed->addLocalObject($deviceObject);
 $mixed->addLocalObject($testObject);
+$mixed->setDeviceInfo([
+    'vendorId' => $vendorId,
+    'vendorName' => $vendorName,
+    'modelName' => $modelName,
+    'objectName' => 'proxy',
+    'description' => 'php-bacnet MixedServer-Demo',
+    'firmwareRevision' => phpversion('bacnet') ?: 'unknown',
+    'applicationSoftwareVersion' => phpversion('bacnet') ?: 'unknown',
+]);
 
 $currentValue = static fn (): float => (float) (intdiv(time(), $switchSeconds) % 2);
 $mixed->onReadProperty(static function (
@@ -67,17 +84,6 @@ $mixed->onReadProperty(static function (
     /* Bekannte Properties kommen als Enum, herstellerspezifische als int.
      * Für einen einheitlichen Callback immer über die numerische ID verzweigen. */
     $propertyId = $property instanceof Bacnet\Property ? $property->value : $property;
-
-    if ($object->getType() === Bacnet\ObjectType::DEVICE
-        && $object->getInstance() === $deviceId) {
-        return match ($propertyId) {
-            Bacnet\Property::OBJECT_IDENTIFIER->value => $object,
-            Bacnet\Property::OBJECT_NAME->value => 'proxy',
-            Bacnet\Property::OBJECT_TYPE->value => Bacnet\ObjectType::DEVICE->value,
-            Bacnet\Property::DESCRIPTION->value => 'php-bacnet MixedServer-Demo',
-            default => null, // Weitere DEVICE-Standardwerte liefert die Erweiterung.
-        };
-    }
 
     if ($object->getType() !== Bacnet\ObjectType::ANALOG_VALUE
         || $object->getInstance() !== 1) {
@@ -93,6 +99,8 @@ $mixed->onReadProperty(static function (
         default => null,
     };
 });
+
+$mixed->announce();
 
 printf(
     "MixedServer Device %d auf %s:%d; ANALOG_VALUE:1 wechselt alle %d s.\n",

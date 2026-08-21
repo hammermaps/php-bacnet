@@ -170,7 +170,7 @@ void bacapp_value_to_zval(BACNET_APPLICATION_DATA_VALUE *val, zval *zv) {
 		break;
 
 	case BACNET_APPLICATION_TAG_CHARACTER_STRING: {
-		char *s = characterstring_value(&val->type.Character_String);
+		const char *s = characterstring_value(&val->type.Character_String);
 		size_t l = characterstring_length(&val->type.Character_String);
 		ZVAL_STRINGL(zv, s ? s : "", s ? l : 0);
 		break;

@@ -31,6 +31,7 @@ All notable changes to php-bacnet are documented here.
 
 - `Client::whoIs()` retries one empty discovery after 250 ms to handle an
   occasionally missed initial Who-Is broadcast.
+- bacnet-stack auf 1.5.1 (`3a74c74a`) angehoben.
 
 ## [0.1.0] — 2026-06-29
 

@@ -20,10 +20,12 @@
 #include "bacnet/rpm.h"
 #include "bacnet/wp.h"
 #include "bacnet/abort.h"
+#include "bacnet/reject.h"
 #include "bacnet/bacapp.h"
 #include "bacnet/bacerror.h"
 #include "bacnet/bacstr.h"
 #include "bacnet/datetime.h"
+#include "bacnet/datalink/bip.h"
 
 #include "../php_bacnet.h"
 #include "bacnet_classes.h"
@@ -2093,11 +2095,18 @@ static zend_object *php_bacnet_server_create_object(zend_class_entry *ce) {
 		(php_bacnet_server_obj *)zend_object_alloc(sizeof(php_bacnet_server_obj), ce);
 	obj->client = NULL;
 	obj->device_id = 0;
+	obj->vendor_id = 0;
 	obj->auto_iam = true;
 	obj->read_handler_set = false;
 	obj->write_handler_set = false;
 	obj->local_objects = NULL;
 	obj->security = NULL;
+	obj->object_name = NULL;
+	obj->vendor_name = NULL;
+	obj->model_name = NULL;
+	obj->description = NULL;
+	obj->firmware_revision = NULL;
+	obj->application_software_version = NULL;
 	ZVAL_UNDEF(&obj->read_handler_zv);
 	ZVAL_UNDEF(&obj->write_handler_zv);
 	zend_object_std_init(&obj->std, ce);
@@ -2120,6 +2129,24 @@ static void php_bacnet_server_free_object(zend_object *object) {
 	}
 	php_bacnet_security_destroy(obj->security);
 	obj->security = NULL;
+	if (obj->object_name) {
+		zend_string_release(obj->object_name);
+	}
+	if (obj->vendor_name) {
+		zend_string_release(obj->vendor_name);
+	}
+	if (obj->model_name) {
+		zend_string_release(obj->model_name);
+	}
+	if (obj->description) {
+		zend_string_release(obj->description);
+	}
+	if (obj->firmware_revision) {
+		zend_string_release(obj->firmware_revision);
+	}
+	if (obj->application_software_version) {
+		zend_string_release(obj->application_software_version);
+	}
 	if (obj->read_handler_set) {
 		zval_ptr_dtor(&obj->read_handler_zv);
 		obj->read_handler_set = false;
@@ -2194,6 +2221,13 @@ PHP_METHOD(Bacnet_Server, __construct) {
 	efree(err_msg);
 
 	srv->device_id = (uint32_t)device_id;
+	srv->object_name = strpprintf(0, "php-bacnet Device %u", srv->device_id);
+	srv->vendor_name = zend_string_init("Unassigned", strlen("Unassigned"), 0);
+	srv->model_name = zend_string_init("php-bacnet Server", strlen("php-bacnet Server"), 0);
+	srv->description = zend_string_init("php-bacnet server", strlen("php-bacnet server"), 0);
+	srv->firmware_revision = zend_string_init(PHP_BACNET_VERSION, strlen(PHP_BACNET_VERSION), 0);
+	srv->application_software_version =
+		zend_string_init(PHP_BACNET_VERSION, strlen(PHP_BACNET_VERSION), 0);
 	srv->auto_iam = true;
 	if (bacnet_ce_mixed && instanceof_function(Z_OBJCE_P(ZEND_THIS), bacnet_ce_mixed)) {
 		php_bacnet_client_enable_cache(srv->client);
@@ -2221,6 +2255,8 @@ PHP_METHOD(Bacnet_Server, addLocalObject) {
 		return;
 
 	php_bacnet_object_identifier_obj *oid = Z_BACNET_OID_P(oid_zv);
+	if (oid->object_type == OBJECT_DEVICE && oid->instance == srv->device_id)
+		return;
 	zend_ulong key = ((zend_ulong)oid->object_type << 22) | (zend_ulong)oid->instance;
 	zval tval;
 	ZVAL_TRUE(&tval);
@@ -2318,6 +2354,106 @@ PHP_METHOD(Bacnet_Server, setAutoIAm) {
 	Z_BACNET_SERVER_P(ZEND_THIS)->auto_iam = enabled;
 }
 
+static bool php_bacnet_server_send_iam(php_bacnet_server_obj *srv);
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_set_device_info, 0, 1, IS_VOID, 0)
+ZEND_ARG_TYPE_INFO(0, info, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Server, setDeviceInfo) {
+	HashTable *info;
+	zval *value;
+	zend_string *key;
+	static const char *const allowed[] = {"vendorId",
+										  "vendorName",
+										  "modelName",
+										  "objectName",
+										  "description",
+										  "firmwareRevision",
+										  "applicationSoftwareVersion"};
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+	Z_PARAM_ARRAY_HT(info)
+	ZEND_PARSE_PARAMETERS_END();
+
+	ZEND_HASH_FOREACH_STR_KEY_VAL(info, key, value) {
+		bool known = false;
+		if (key) {
+			for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+				if (zend_string_equals_cstr(key, allowed[i], strlen(allowed[i]))) {
+					known = true;
+					break;
+				}
+			}
+		}
+		if (!known) {
+			zend_value_error("setDeviceInfo(): unknown key '%s'", key ? ZSTR_VAL(key) : "numeric");
+			RETURN_THROWS();
+		}
+	}
+	ZEND_HASH_FOREACH_END();
+
+	zval *vendor_id_zv = zend_hash_str_find(info, "vendorId", strlen("vendorId"));
+	zval *vendor_name_zv = zend_hash_str_find(info, "vendorName", strlen("vendorName"));
+	zval *model_name_zv = zend_hash_str_find(info, "modelName", strlen("modelName"));
+	if (!vendor_id_zv || Z_TYPE_P(vendor_id_zv) != IS_LONG || !vendor_name_zv ||
+		Z_TYPE_P(vendor_name_zv) != IS_STRING || !model_name_zv ||
+		Z_TYPE_P(model_name_zv) != IS_STRING) {
+		zend_value_error("setDeviceInfo(): vendorId, vendorName and modelName are required");
+		RETURN_THROWS();
+	}
+	if (Z_LVAL_P(vendor_id_zv) < 1 || Z_LVAL_P(vendor_id_zv) > UINT16_MAX) {
+		zend_value_error(
+			"setDeviceInfo(): vendorId must be a registered BACnet vendor ID (1..65535)");
+		RETURN_THROWS();
+	}
+	if (ZSTR_LEN(Z_STR_P(vendor_name_zv)) == 0 || ZSTR_LEN(Z_STR_P(model_name_zv)) == 0) {
+		zend_value_error("setDeviceInfo(): vendorName and modelName must not be empty");
+		RETURN_THROWS();
+	}
+
+	const char *const optional[] = {"objectName", "description", "firmwareRevision",
+									"applicationSoftwareVersion"};
+	for (size_t i = 0; i < sizeof(optional) / sizeof(optional[0]); i++) {
+		value = zend_hash_str_find(info, optional[i], strlen(optional[i]));
+		if (value && (Z_TYPE_P(value) != IS_STRING || Z_STRLEN_P(value) == 0)) {
+			zend_value_error("setDeviceInfo(): %s must be a non-empty string", optional[i]);
+			RETURN_THROWS();
+		}
+	}
+
+	php_bacnet_server_obj *srv = Z_BACNET_SERVER_P(ZEND_THIS);
+	srv->vendor_id = (uint16_t)Z_LVAL_P(vendor_id_zv);
+#define PHP_BACNET_SERVER_SET_INFO_STRING(member, field)                                           \
+	do {                                                                                           \
+		value = zend_hash_str_find(info, field, strlen(field));                                    \
+		if (value) {                                                                               \
+			if (srv->member) {                                                                     \
+				zend_string_release(srv->member);                                                  \
+			}                                                                                      \
+			srv->member = zend_string_copy(Z_STR_P(value));                                        \
+		}                                                                                          \
+	} while (0)
+	PHP_BACNET_SERVER_SET_INFO_STRING(vendor_name, "vendorName");
+	PHP_BACNET_SERVER_SET_INFO_STRING(model_name, "modelName");
+	PHP_BACNET_SERVER_SET_INFO_STRING(object_name, "objectName");
+	PHP_BACNET_SERVER_SET_INFO_STRING(description, "description");
+	PHP_BACNET_SERVER_SET_INFO_STRING(firmware_revision, "firmwareRevision");
+	PHP_BACNET_SERVER_SET_INFO_STRING(application_software_version, "applicationSoftwareVersion");
+#undef PHP_BACNET_SERVER_SET_INFO_STRING
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_announce, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Server, announce) {
+	ZEND_PARSE_PARAMETERS_NONE();
+	if (!php_bacnet_server_send_iam(Z_BACNET_SERVER_P(ZEND_THIS))) {
+		zend_throw_exception(bacnet_ce_exception, "Unable to send BACnet I-Am", 0);
+		RETURN_THROWS();
+	}
+}
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_server_set_security_options, 0, 1, IS_VOID,
 										0)
 ZEND_ARG_TYPE_INFO(0, options, IS_ARRAY, 0)
@@ -2381,7 +2517,6 @@ static bool php_bacnet_server_send_apdu(BACNET_ADDRESS *dest, const uint8_t *apd
 										uint16_t apdu_len) {
 	uint8_t pdu[MAX_APDU + MAX_NPDU];
 	BACNET_NPDU_DATA npdu_data;
-	BACNET_ADDRESS my_address;
 	int npdu_len;
 
 	if (!dest || !apdu) {
@@ -2389,14 +2524,126 @@ static bool php_bacnet_server_send_apdu(BACNET_ADDRESS *dest, const uint8_t *apd
 	}
 
 	npdu_encode_npdu_data(&npdu_data, false, MESSAGE_PRIORITY_NORMAL);
-	bip_get_my_address(&my_address);
-	npdu_len = npdu_encode_pdu(pdu, dest, &my_address, &npdu_data);
+	npdu_len = npdu_encode_pdu(pdu, dest, NULL, &npdu_data);
 	if (npdu_len < 0 || (size_t)npdu_len + apdu_len > sizeof(pdu)) {
 		return false;
 	}
 
 	memcpy(pdu + npdu_len, apdu, apdu_len);
+	if (dest->mac_len == 0) {
+		BACNET_IP_ADDRESS broadcast;
+		uint8_t mpdu[BIP_MPDU_MAX];
+		bip_get_broadcast_addr(&broadcast);
+		broadcast.port = PHP_BACNET_DEFAULT_PORT;
+		int mpdu_len = bvlc_encode_original_broadcast(mpdu, sizeof(mpdu), pdu,
+													  (uint16_t)(npdu_len + apdu_len));
+		return mpdu_len > 0 && bip_send_mpdu(&broadcast, mpdu, (uint16_t)mpdu_len) > 0;
+	}
 	return bip_send_pdu(dest, &npdu_data, pdu, (uint16_t)(npdu_len + apdu_len)) > 0;
+}
+
+static bool php_bacnet_server_send_iam(php_bacnet_server_obj *srv) {
+	uint8_t iam_apdu[MAX_APDU];
+	BACNET_ADDRESS broadcast;
+	int iam_len = iam_encode_apdu(iam_apdu, srv->device_id, 480, SEGMENTATION_NONE, srv->vendor_id);
+
+	if (iam_len <= 0) {
+		return false;
+	}
+	memset(&broadcast, 0, sizeof(broadcast));
+	/* B/IP subnet broadcast: no routed/global NPDU address. */
+	broadcast.net = 0;
+	return php_bacnet_server_send_apdu(&broadcast, iam_apdu, (uint16_t)iam_len);
+}
+
+static bool php_bacnet_server_is_own_device(php_bacnet_server_obj *srv, zend_ulong key) {
+	zend_ulong device_key = ((zend_ulong)OBJECT_DEVICE << 22) | srv->device_id;
+	return key == device_key;
+}
+
+static uint32_t php_bacnet_server_object_list_count(php_bacnet_server_obj *srv) {
+	zend_ulong key;
+	zval *value;
+	uint32_t count = 1;
+
+	if (!srv->local_objects) {
+		return count;
+	}
+	ZEND_HASH_FOREACH_NUM_KEY_VAL(srv->local_objects, key, value) {
+		(void)value;
+		if (!php_bacnet_server_is_own_device(srv, key)) {
+			count++;
+		}
+	}
+	ZEND_HASH_FOREACH_END();
+	return count;
+}
+
+static bool php_bacnet_server_object_list_item(php_bacnet_server_obj *srv, uint32_t index,
+											   BACNET_OBJECT_ID *object_id) {
+	zend_ulong key;
+	zval *value;
+	uint32_t current = 1;
+
+	if (index == 1) {
+		object_id->type = OBJECT_DEVICE;
+		object_id->instance = srv->device_id;
+		return true;
+	}
+	if (!srv->local_objects) {
+		return false;
+	}
+	ZEND_HASH_FOREACH_NUM_KEY_VAL(srv->local_objects, key, value) {
+		(void)value;
+		if (php_bacnet_server_is_own_device(srv, key)) {
+			continue;
+		}
+		current++;
+		if (current == index) {
+			object_id->type = (BACNET_OBJECT_TYPE)(key >> 22);
+			object_id->instance = (uint32_t)(key & BACNET_MAX_INSTANCE);
+			return true;
+		}
+	}
+	ZEND_HASH_FOREACH_END();
+	return false;
+}
+
+static int php_bacnet_server_encode_object_list(php_bacnet_server_obj *srv,
+												BACNET_ARRAY_INDEX array_index, uint8_t *buffer,
+												size_t buffer_size) {
+	BACNET_APPLICATION_DATA_VALUE value;
+	BACNET_OBJECT_ID object_id;
+	uint32_t count = php_bacnet_server_object_list_count(srv);
+	int total = 0;
+
+	memset(&value, 0, sizeof(value));
+	if (array_index == 0) {
+		value.tag = BACNET_APPLICATION_TAG_UNSIGNED_INT;
+		value.type.Unsigned_Int = count;
+		return bacapp_encode_application_data(buffer, &value);
+	}
+	if (array_index != BACNET_ARRAY_ALL) {
+		if (!php_bacnet_server_object_list_item(srv, array_index, &object_id)) {
+			return -1;
+		}
+		value.tag = BACNET_APPLICATION_TAG_OBJECT_ID;
+		value.type.Object_Id = object_id;
+		return bacapp_encode_application_data(buffer, &value);
+	}
+	for (uint32_t index = 1; index <= count; index++) {
+		if (!php_bacnet_server_object_list_item(srv, index, &object_id)) {
+			return -1;
+		}
+		value.tag = BACNET_APPLICATION_TAG_OBJECT_ID;
+		value.type.Object_Id = object_id;
+		int encoded = bacapp_encode_application_data(buffer + total, &value);
+		if (encoded <= 0 || (size_t)(total + encoded) > buffer_size) {
+			return -1;
+		}
+		total += encoded;
+	}
+	return total;
 }
 
 /* Standardwerte für das DEVICE-Objekt; ein PHP-Read-Hook darf sie überschreiben. */
@@ -2412,8 +2659,11 @@ static bool php_bacnet_server_default_device_property(php_bacnet_server_obj *srv
 	case PROP_OBJECT_TYPE:
 		ZVAL_LONG(result, OBJECT_DEVICE);
 		return true;
+	case PROP_OBJECT_NAME:
+		ZVAL_STR_COPY(result, srv->object_name);
+		return true;
 	case PROP_DESCRIPTION:
-		ZVAL_STRING(result, "php-bacnet server");
+		ZVAL_STR_COPY(result, srv->description);
 		return true;
 	case PROP_APDU_SEGMENT_TIMEOUT:
 		ZVAL_LONG(result, 2000);
@@ -2422,10 +2672,10 @@ static bool php_bacnet_server_default_device_property(php_bacnet_server_obj *srv
 		ZVAL_LONG(result, 3000);
 		return true;
 	case PROP_APPLICATION_SOFTWARE_VERSION:
-		ZVAL_STRING(result, "php-bacnet");
+		ZVAL_STR_COPY(result, srv->application_software_version);
 		return true;
 	case PROP_FIRMWARE_REVISION:
-		ZVAL_STRING(result, "1.0");
+		ZVAL_STR_COPY(result, srv->firmware_revision);
 		return true;
 	case PROP_MAX_APDU_LENGTH_ACCEPTED:
 		ZVAL_LONG(result, 480);
@@ -2434,7 +2684,7 @@ static bool php_bacnet_server_default_device_property(php_bacnet_server_obj *srv
 		ZVAL_LONG(result, 3);
 		return true;
 	case PROP_MODEL_NAME:
-		ZVAL_STRING(result, "php-bacnet MixedServer");
+		ZVAL_STR_COPY(result, srv->model_name);
 		return true;
 	case PROP_PROTOCOL_VERSION:
 		ZVAL_LONG(result, BACNET_PROTOCOL_VERSION);
@@ -2451,12 +2701,27 @@ static bool php_bacnet_server_default_device_property(php_bacnet_server_obj *srv
 		php_bacnet_bitstring_new(&services, result);
 		return true;
 	}
+	case PROP_PROTOCOL_OBJECT_TYPES_SUPPORTED: {
+		BACNET_BIT_STRING object_types;
+		zend_ulong key;
+		zval *value;
+		bitstring_init(&object_types);
+		bitstring_set_bit(&object_types, OBJECT_DEVICE, true);
+		if (srv->local_objects) {
+			ZEND_HASH_FOREACH_NUM_KEY_VAL(srv->local_objects, key, value) {
+				(void)value;
+				bitstring_set_bit(&object_types, (uint8_t)(key >> 22), true);
+			}
+			ZEND_HASH_FOREACH_END();
+		}
+		php_bacnet_bitstring_new(&object_types, result);
+		return true;
+	}
 	case PROP_SYSTEM_STATUS:
 		ZVAL_LONG(result, 0);
 		return true;
-	/* 0 ist nach BACnet der nicht zugewiesene Hersteller-Identifier. */
 	case PROP_VENDOR_IDENTIFIER:
-		ZVAL_LONG(result, 0);
+		ZVAL_LONG(result, srv->vendor_id);
 		return true;
 	case PROP_SEGMENTATION_SUPPORTED:
 		ZVAL_LONG(result, SEGMENTATION_NONE);
@@ -2465,11 +2730,18 @@ static bool php_bacnet_server_default_device_property(php_bacnet_server_obj *srv
 		ZVAL_LONG(result, 0);
 		return true;
 	case PROP_VENDOR_NAME:
-		ZVAL_STRING(result, "https://github.com/hammermaps/php-bacnet");
+		ZVAL_STR_COPY(result, srv->vendor_name);
 		return true;
 	default:
 		return false;
 	}
+}
+
+static bool php_bacnet_server_is_managed_device_property(php_bacnet_server_obj *srv,
+														 BACNET_OBJECT_TYPE type, uint32_t instance,
+														 BACNET_PROPERTY_ID property) {
+	return type == OBJECT_DEVICE && instance == srv->device_id &&
+		   (property == PROP_OBJECT_LIST || property == PROP_PROTOCOL_OBJECT_TYPES_SUPPORTED);
 }
 
 /* Resolve a server property once for both ReadProperty and RPM.  A NULL from
@@ -2493,7 +2765,8 @@ static bool php_bacnet_server_resolve_property(php_bacnet_server_obj *srv, BACNE
 		return false;
 	}
 
-	if (srv->read_handler_set) {
+	if (srv->read_handler_set &&
+		!php_bacnet_server_is_managed_device_property(srv, type, instance, property)) {
 		zval oid_zv, prop_zv, prop_int_zv, aidx_zv, args[3];
 		php_bacnet_oid_from_c(type, instance, &oid_zv);
 		ZVAL_LONG(&prop_int_zv, (zend_long)property);
@@ -2554,6 +2827,8 @@ static const BACNET_PROPERTY_ID php_bacnet_server_device_all_properties[] = {
 	PROP_PROTOCOL_REVISION,
 	PROP_SEGMENTATION_SUPPORTED,
 	PROP_PROTOCOL_SERVICES_SUPPORTED,
+	PROP_PROTOCOL_OBJECT_TYPES_SUPPORTED,
+	PROP_OBJECT_LIST,
 	PROP_APDU_TIMEOUT,
 	PROP_NUMBER_OF_APDU_RETRIES,
 	PROP_MAX_APDU_LENGTH_ACCEPTED,
@@ -2637,17 +2912,8 @@ PHP_METHOD(Bacnet_Server, poll) {
 			uint32_t did = srv->device_id;
 			bool in_range =
 				((low < 0) || ((int32_t)did >= low)) && ((high < 0) || ((int32_t)did <= high));
-			if (in_range) {
-				uint8_t iam_apdu[MAX_APDU];
-				int iam_len = iam_encode_apdu(iam_apdu, srv->device_id, 480, SEGMENTATION_NONE, 0);
-				if (iam_len > 0) {
-					BACNET_ADDRESS bcast;
-					memset(&bcast, 0, sizeof(bcast));
-					/* B/IP subnet broadcast: no routed/global NPDU address. */
-					bcast.net = 0;
-					php_bacnet_server_send_apdu(&bcast, iam_apdu, (uint16_t)iam_len);
-				}
-			}
+			if (in_range)
+				php_bacnet_server_send_iam(srv);
 		}
 		goto poll_done;
 	}
@@ -2671,31 +2937,38 @@ PHP_METHOD(Bacnet_Server, poll) {
 			zval retval;
 			BACNET_ERROR_CLASS error_class;
 			BACNET_ERROR_CODE error_code;
-			if (!php_bacnet_server_resolve_property(srv, rpdata.object_type, rpdata.object_instance,
-													rpdata.object_property, rpdata.array_index,
-													&retval, &error_class, &error_code)) {
+			uint8_t app_buf[MAX_APDU];
+			int app_len = 0;
+			bool managed_object_list =
+				php_bacnet_server_is_managed_device_property(
+					srv, rpdata.object_type, rpdata.object_instance, rpdata.object_property) &&
+				rpdata.object_property == PROP_OBJECT_LIST;
+			if (managed_object_list) {
+				app_len = php_bacnet_server_encode_object_list(srv, rpdata.array_index, app_buf,
+															   sizeof(app_buf));
+				if (app_len < 0) {
+					error_class = ERROR_CLASS_PROPERTY;
+					error_code = ERROR_CODE_INVALID_ARRAY_INDEX;
+				}
+			} else if (!php_bacnet_server_resolve_property(
+						   srv, rpdata.object_type, rpdata.object_instance, rpdata.object_property,
+						   rpdata.array_index, &retval, &error_class, &error_code)) {
+				app_len = -1;
+			} else {
+				BACNET_APPLICATION_DATA_VALUE appval;
+				if (!zval_to_bacapp_value(&retval, &appval) ||
+					(app_len = bacapp_encode_application_data(app_buf, &appval)) <= 0) {
+					app_len = -1;
+					error_class = ERROR_CLASS_PROPERTY;
+					error_code = ERROR_CODE_DATATYPE_NOT_SUPPORTED;
+				}
+				zval_ptr_dtor(&retval);
+			}
+			if (app_len < 0) {
 				if (!EG(exception)) {
 					BACNET_SEND_ERROR(invoke_id, SERVICE_CONFIRMED_READ_PROPERTY, error_class,
 									  error_code);
 				}
-				goto poll_done;
-			}
-
-			/* Encode return value → BACNET_APPLICATION_DATA_VALUE */
-			BACNET_APPLICATION_DATA_VALUE appval;
-			if (!zval_to_bacapp_value(&retval, &appval)) {
-				zval_ptr_dtor(&retval);
-				BACNET_SEND_ERROR(invoke_id, SERVICE_CONFIRMED_READ_PROPERTY, ERROR_CLASS_PROPERTY,
-								  ERROR_CODE_DATATYPE_NOT_SUPPORTED);
-				goto poll_done;
-			}
-			zval_ptr_dtor(&retval);
-
-			uint8_t app_buf[MAX_APDU];
-			int app_len = bacapp_encode_application_data(app_buf, &appval);
-			if (app_len <= 0) {
-				BACNET_SEND_ERROR(invoke_id, SERVICE_CONFIRMED_READ_PROPERTY, ERROR_CLASS_PROPERTY,
-								  ERROR_CODE_DATATYPE_NOT_SUPPORTED);
 				goto poll_done;
 			}
 
@@ -2781,12 +3054,27 @@ PHP_METHOD(Bacnet_Server, poll) {
 						BACNET_ERROR_CLASS error_class;
 						BACNET_ERROR_CODE error_code;
 						zval retval;
-						bool have_value = php_bacnet_server_resolve_property(
-							srv, rpmdata.object_type, rpmdata.object_instance, properties[i],
-							rpmdata.array_index, &retval, &error_class, &error_code);
 						uint8_t app_buf[MAX_APDU];
 						int app_len = 0;
-						if (have_value) {
+						bool managed_object_list =
+							php_bacnet_server_is_managed_device_property(
+								srv, rpmdata.object_type, rpmdata.object_instance, properties[i]) &&
+							properties[i] == PROP_OBJECT_LIST;
+						bool have_value = false;
+						if (managed_object_list) {
+							app_len = php_bacnet_server_encode_object_list(
+								srv, rpmdata.array_index, app_buf, sizeof(app_buf));
+							have_value = app_len >= 0;
+							if (!have_value) {
+								error_class = ERROR_CLASS_PROPERTY;
+								error_code = ERROR_CODE_INVALID_ARRAY_INDEX;
+							}
+						} else {
+							have_value = php_bacnet_server_resolve_property(
+								srv, rpmdata.object_type, rpmdata.object_instance, properties[i],
+								rpmdata.array_index, &retval, &error_class, &error_code);
+						}
+						if (have_value && !managed_object_list) {
 							BACNET_APPLICATION_DATA_VALUE appval;
 							if (!zval_to_bacapp_value(&retval, &appval) ||
 								(app_len = bacapp_encode_application_data(app_buf, &appval)) <= 0) {
@@ -2859,7 +3147,7 @@ PHP_METHOD(Bacnet_Server, poll) {
 			/* Decode application_data → PHP value */
 			zval value_zv;
 			ZVAL_NULL(&value_zv);
-			if (wpdata.application_data && wpdata.application_data_len > 0) {
+			if (wpdata.application_data_len > 0) {
 				bacapp_values_to_zval(wpdata.application_data,
 									  (unsigned)wpdata.application_data_len, &value_zv);
 			}
@@ -2917,6 +3205,12 @@ PHP_METHOD(Bacnet_Server, poll) {
 			ack_apdu[1] = invoke_id;
 			ack_apdu[2] = SERVICE_CONFIRMED_WRITE_PROPERTY;
 			php_bacnet_server_send_apdu(&src, ack_apdu, 3);
+		} else {
+			uint8_t reject_apdu[3];
+			int reject_len =
+				reject_encode_apdu(reject_apdu, invoke_id, REJECT_REASON_UNRECOGNIZED_SERVICE);
+			if (reject_len > 0)
+				php_bacnet_server_send_apdu(&src, reject_apdu, (uint16_t)reject_len);
 		}
 	}
 
@@ -2934,14 +3228,17 @@ static const zend_function_entry bacnet_server_methods[] = {
 			PHP_ME(Bacnet_Server, onWriteProperty, arginfo_bacnet_server_on_write_property,
 				   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_Server, setAutoIAm,
 										   arginfo_bacnet_server_set_auto_iam, ZEND_ACC_PUBLIC)
-				PHP_ME(Bacnet_Server, setSecurityOptions,
-					   arginfo_bacnet_server_set_security_options, ZEND_ACC_PUBLIC)
-					PHP_ME(Bacnet_Server, getSecurityOptions,
-						   arginfo_bacnet_server_get_security_options, ZEND_ACC_PUBLIC)
-						PHP_ME(Bacnet_Server, getSecurityStats,
-							   arginfo_bacnet_server_get_security_stats, ZEND_ACC_PUBLIC)
-							PHP_ME(Bacnet_Server, poll, arginfo_bacnet_server_poll, ZEND_ACC_PUBLIC)
-								PHP_FE_END};
+				PHP_ME(Bacnet_Server, setDeviceInfo, arginfo_bacnet_server_set_device_info,
+					   ZEND_ACC_PUBLIC)
+					PHP_ME(Bacnet_Server, announce, arginfo_bacnet_server_announce, ZEND_ACC_PUBLIC)
+						PHP_ME(Bacnet_Server, setSecurityOptions,
+							   arginfo_bacnet_server_set_security_options, ZEND_ACC_PUBLIC)
+							PHP_ME(Bacnet_Server, getSecurityOptions,
+								   arginfo_bacnet_server_get_security_options, ZEND_ACC_PUBLIC)
+								PHP_ME(Bacnet_Server, getSecurityStats,
+									   arginfo_bacnet_server_get_security_stats, ZEND_ACC_PUBLIC)
+									PHP_ME(Bacnet_Server, poll, arginfo_bacnet_server_poll,
+										   ZEND_ACC_PUBLIC) PHP_FE_END};
 
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Helper: register one int-backed enum case                            */

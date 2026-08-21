@@ -716,13 +716,6 @@ void php_bacnet_cache_refresh(php_bacnet_cache *c, php_bacnet_cache_partition p,
 	php_bacnet_cache_invalidate(c, p, scope);
 }
 
-static int php_bacnet_partition_from_name(const char *name) {
-	for (int i = 0; i < PHP_BACNET_CACHE_PARTITION_COUNT; i++)
-		if (!strcmp(name, partition_names[i]))
-			return i;
-	return -1;
-}
-
 bool php_bacnet_cache_set_options(php_bacnet_cache *c, HashTable *options, zend_string **error) {
 	zend_string *key;
 	zval *value;

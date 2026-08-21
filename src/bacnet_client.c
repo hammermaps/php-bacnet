@@ -35,6 +35,23 @@ static uint64_t php_bacnet_ms_now(void) {
 	return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
 
+static int php_bacnet_send_standard_broadcast(const uint8_t *npdu, uint16_t npdu_len) {
+	BACNET_IP_ADDRESS destination;
+	uint8_t mpdu[BIP_MPDU_MAX];
+	int mpdu_len;
+
+	if (!npdu || !bip_get_broadcast_addr(&destination)) {
+		return -1;
+	}
+	/* bacnet-stack 1.5.1 exposes no independent broadcast-port setting. */
+	destination.port = PHP_BACNET_DEFAULT_PORT;
+	mpdu_len = bvlc_encode_original_broadcast(mpdu, sizeof(mpdu), npdu, npdu_len);
+	if (mpdu_len <= 0) {
+		return -1;
+	}
+	return bip_send_mpdu(&destination, mpdu, (uint16_t)mpdu_len);
+}
+
 static bool php_bacnet_dispatch_unsolicited(php_bacnet_client *client, const BACNET_ADDRESS *source,
 											uint8_t *pdu, uint16_t pdu_len) {
 	if (!client->unsolicited_handler)
@@ -62,16 +79,9 @@ php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, ch
 	client->port = port ? port : PHP_BACNET_DEFAULT_PORT;
 
 	bip_set_port(client->port);
-	/*
-	 * Always broadcast to the standard BACnet/IP port (PHP_BACNET_DEFAULT_PORT).
-	 * bip_get_broadcast_port() falls back to BIP_Port when BIP_Broadcast_Port
-	 * is 0, so if the client is on a non-standard port (e.g. 47809), broadcasts
-	 * would go to that port instead of PHP_BACNET_DEFAULT_PORT and no standard server would hear
-	 * them.
-	 */
-	bip_set_broadcast_port(PHP_BACNET_BIP_PORT_HEX);
-
-	if (!bip_init(real_iface)) {
+	char *bip_iface = real_iface ? estrdup(real_iface) : NULL;
+	if (!bip_init(bip_iface)) {
+		efree(bip_iface);
 		if (err_msg) {
 			char buf[PHP_BACNET_ERROR_MESSAGE_LENGTH];
 			snprintf(buf, sizeof(buf), "bip_init failed on interface '%s' port %u", client->iface,
@@ -83,6 +93,7 @@ php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, ch
 		pefree(client, 1);
 		return NULL;
 	}
+	efree(bip_iface);
 
 	client->socket_fd = bip_get_socket();
 	client->initialized = true;
@@ -167,15 +178,13 @@ int php_bacnet_broadcast_and_collect(php_bacnet_client *client, uint8_t *request
 	 * Encode NPDU first, then append the APDU (mirrors Send_WhoIs_To_Network).
 	 */
 	uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
-	BACNET_ADDRESS my_address;
-	bip_get_my_address(&my_address);
-	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, &dest, &my_address, &npdu_data);
+	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, &dest, NULL, &npdu_data);
 	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf))
 		return 0;
 	memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);
 	unsigned total_len = (unsigned)(npdu_hdrlen + request_apdu_len);
 
-	bip_send_pdu(&dest, &npdu_data, pdu_buf, total_len);
+	php_bacnet_send_standard_broadcast(pdu_buf, (uint16_t)total_len);
 
 	/* Collect I-Am responses until timeout */
 	uint64_t deadline = php_bacnet_ms_now() + timeout_ms;
@@ -276,9 +285,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 
 	/* Encode NPDU before APDU — bvlc_send_pdu ignores npdu_data */
 	uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
-	BACNET_ADDRESS my_address;
-	bip_get_my_address(&my_address);
-	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, dest, &my_address, &npdu_data);
+	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, dest, NULL, &npdu_data);
 	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf))
 		return -1;
 	memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);

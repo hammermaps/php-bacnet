@@ -30,7 +30,7 @@ echo "constructor signature: OK\n";
 
 // --- Methods present ---
 $methods = ['addLocalObject', 'removeLocalObject', 'onReadProperty',
-            'onWriteProperty', 'setAutoIAm', 'poll'];
+            'onWriteProperty', 'setAutoIAm', 'setDeviceInfo', 'announce', 'poll'];
 foreach ($methods as $m) {
     php_bacnet_expect(method_exists('Bacnet\Server', $m), "$m missing");
 }
@@ -46,6 +46,10 @@ php_bacnet_expect($rm->getParameters()[0]->getDefaultValue() === 0, 'poll timeou
 
 $rm = new ReflectionMethod('Bacnet\Server', 'setAutoIAm');
 php_bacnet_expect($rm->getNumberOfRequiredParameters() === 1, 'setAutoIAm requires 1');
+$rm = new ReflectionMethod('Bacnet\Server', 'setDeviceInfo');
+php_bacnet_expect($rm->getNumberOfRequiredParameters() === 1, 'setDeviceInfo requires 1');
+$rm = new ReflectionMethod('Bacnet\Server', 'announce');
+php_bacnet_expect($rm->getNumberOfRequiredParameters() === 0, 'announce requires 0');
 echo "method signatures: OK\n";
 
 // --- poll() on uninitialized throws Bacnet\Exception ---
@@ -58,6 +62,28 @@ try {
     php_bacnet_expect(str_contains($e->getMessage(), 'not initialized'), 'correct error message');
 }
 echo "poll without init throws: OK\n";
+
+// --- Device metadata validation is explicit and independent of assert() ---
+try {
+    $srv_uninit->setDeviceInfo(['vendorId' => 0, 'vendorName' => 'Vendor', 'modelName' => 'Model']);
+    php_bacnet_expect(false, 'unassigned vendor ID should throw');
+} catch (ValueError $e) {
+    echo "ValueError: OK\n";
+}
+try {
+    $srv_uninit->setDeviceInfo(['vendorId' => 1, 'vendorName' => '', 'modelName' => 'Model']);
+    php_bacnet_expect(false, 'empty vendor name should throw');
+} catch (ValueError $e) {
+    echo "ValueError: OK\n";
+}
+try {
+    $srv_uninit->setDeviceInfo(['vendorId' => 1, 'vendorName' => 'Vendor', 'modelName' => 'Model', 'extra' => true]);
+    php_bacnet_expect(false, 'unknown key should throw');
+} catch (ValueError $e) {
+    echo "ValueError: OK\n";
+}
+$srv_uninit->setDeviceInfo(['vendorId' => 1, 'vendorName' => 'Vendor', 'modelName' => 'Model']);
+echo "device info validation: OK\n";
 
 // --- Singleton guard: second Server throws ---
 // We can't actually call the constructor without a real BACnet interface,
@@ -127,5 +153,9 @@ constructor signature: OK
 all methods present: OK
 method signatures: OK
 poll without init throws: OK
+ValueError: OK
+ValueError: OK
+ValueError: OK
+device info validation: OK
 %A
 All Phase 6 tests passed.
