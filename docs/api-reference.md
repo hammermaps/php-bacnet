@@ -302,6 +302,40 @@ $device = $devices[0];
 
 ---
 
+#### Bacnet\Client::onCovNotification() und ::poll()
+
+```php
+public function onCovNotification(callable $handler): void
+public function poll(int $timeoutMs = 0): void
+```
+
+Registriert einen Callback für eingehende COV-Benachrichtigungen und verarbeitet
+mit `poll()` jeweils maximal ein eingehendes Paket. Unbestätigte und bestätigte
+COV-Benachrichtigungen werden dekodiert; bestätigte Benachrichtigungen erhalten
+automatisch ein Simple-ACK.
+
+Der Callback erhält ein Array mit `subscriberProcessId`, `deviceId`,
+`objectType`, `instance`, `timeRemaining` und `properties`. Jedes Element von
+`properties` enthält `property`, `arrayIndex` und den dekodierten `value`.
+
+```php
+$client->onCovNotification(function (array $event): void {
+    foreach ($event['properties'] as $property) {
+        printf("%d/%d = %s\n", $event['objectType'], $event['instance'],
+            json_encode($property['value']));
+    }
+});
+
+while (true) {
+    $client->poll(100);
+}
+```
+
+`Bacnet\MixedServer` bietet denselben Callback; dessen vorhandenes `poll()`
+verarbeitet COV-Benachrichtigungen ebenfalls.
+
+---
+
 ### Bacnet\Device
 
 ```
@@ -512,6 +546,62 @@ $device->writeProperty(
     Bacnet\Value::characterString('Außentemperatur'),
 );
 ```
+
+---
+
+#### Bacnet\Device::subscribeCOV() und ::unsubscribeCOV()
+
+```php
+public function subscribeCOV(
+    Bacnet\ObjectType $objectType,
+    int $instance,
+    Bacnet\Property $property,
+    int $lifetimeSeconds = 3600,
+    ?float $covIncrement = null,
+    ?int $subscriberProcessId = null,
+): int
+
+public function unsubscribeCOV(
+    Bacnet\ObjectType $objectType,
+    int $instance,
+    Bacnet\Property $property,
+    int $subscriberProcessId,
+): void
+```
+
+Meldet eine überwachte Eigenschaft eines entfernten Geräts für
+`SubscribeCOVProperty` an. Der Rückgabewert ist die Subscriber-Process-ID.
+Mit derselben ID kann die Anmeldung vor Ablauf erneuert oder mit
+`unsubscribeCOV()` beendet werden. Die Benachrichtigungen werden mit
+`Client::poll()` beziehungsweise `MixedServer::poll()` an den registrierten
+COV-Callback übergeben.
+
+| Parameter | Beschreibung |
+|-----------|--------------|
+| `$objectType`, `$instance`, `$property` | Überwachtes BACnet-Objekt und seine Eigenschaft. |
+| `$lifetimeSeconds` | Laufzeit von 1 bis 86.400 Sekunden; dieselbe Anmeldung verlängert die Laufzeit. |
+| `$covIncrement` | Optionale Mindeständerung für COV-fähige Analogwerte. |
+| `$subscriberProcessId` | Optionale eigene Kennung; der Rückgabewert von `subscribeCOV()` muss zum Abmelden verwendet werden. |
+
+```php
+$subscriptionId = $device->subscribeCOV(
+    Bacnet\ObjectType::ANALOG_INPUT,
+    1,
+    Bacnet\Property::PRESENT_VALUE,
+    lifetimeSeconds: 3600,
+    covIncrement: 0.1,
+);
+
+// ... Event-Loop mit $client->poll(100) ...
+$device->unsubscribeCOV(
+    Bacnet\ObjectType::ANALOG_INPUT,
+    1,
+    Bacnet\Property::PRESENT_VALUE,
+    $subscriptionId,
+);
+```
+
+Bei fehlender Bestätigung wirft die Erweiterung `Bacnet\TimeoutException`.
 
 ---
 

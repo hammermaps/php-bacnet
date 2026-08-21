@@ -269,6 +269,12 @@ namespace Bacnet {
             bool $refresh = false,
         ): array {}
 
+        /** Register a callback receiving decoded remote COV notifications. */
+        public function onCovNotification(callable $handler): void {}
+
+        /** Process one incoming COV notification. */
+        public function poll(int $timeoutMs = 0): void {}
+
         public function setCacheOptions(array $options): void {}
         public function getCacheOptions(): array {}
         public function getCacheStats(bool $includeEntries = false, bool $reset = false): array {}
@@ -310,6 +316,24 @@ namespace Bacnet {
             Value      $value,
             int        $priority   = 16,
             ?int       $arrayIndex = null,
+        ): void {}
+
+        /** Subscribe to remote property COV notifications. */
+        public function subscribeCOV(
+            ObjectType $objectType,
+            int $instance,
+            Property $property,
+            int $lifetimeSeconds = 3600,
+            ?float $covIncrement = null,
+            ?int $subscriberProcessId = null,
+        ): int {}
+
+        /** Cancel a COV subscription previously returned by subscribeCOV(). */
+        public function unsubscribeCOV(
+            ObjectType $objectType,
+            int $instance,
+            Property $property,
+            int $subscriberProcessId,
         ): void {}
     }
 

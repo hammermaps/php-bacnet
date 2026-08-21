@@ -33,6 +33,7 @@ php run-tests.php -d extension=modules/bacnet.so --show-diff tests/
 | `010_mixed_server_lifecycle.phpt` | Optional | MixedServer callbacks, socket lifecycle and singleton guard |
 | `011_server_security.phpt` | Optional | Defaults, partielle Overrides, Validierung und Statistiken |
 | `012_server_security_ini.phpt` | Optional | INI-Übernahme und Vererbung durch MixedServer |
+| `015_cov_api.phpt` | No | COV-An-/Abmeldung sowie Client- und MixedServer-Callback-API |
 
 ## Network-Dependent Tests
 
@@ -103,6 +104,23 @@ php -n -d extension=modules/bacnet.so tests/integration_security.php
 
 Die geprüften Schutzsemantiken und alle konfigurierbaren Werte sind in
 [`docs/server-security.md`](../docs/server-security.md) beschrieben.
+
+### COV-Integrationstest
+
+`integration_cov.php` prüft eine echte `SubscribeCOVProperty`-Anmeldung,
+mehrere Änderungen von `PRESENT_VALUE` und die Abmeldung. Es ist bewusst ein
+optionaler Netztest: Die reguläre PHPT-Suite benötigt kein BACnet-Gerät.
+
+```bash
+BACNET_TEST_INTERFACE=net3 \
+BACNET_TEST_COV_DEVICE_ID=2080995 \
+php -n -d extension=modules/bacnet.so tests/integration_cov.php
+```
+
+`BACNET_TEST_COV_DEVICE_ID` ist erforderlich. Optional sind
+`BACNET_TEST_COV_INSTANCE` (Standard `0`), `BACNET_TEST_COV_PORT` (Standard
+`47808`) und `BACNET_TEST_COV_SECONDS` (Standard `20`). Das Testgerät muss
+`SubscribeCOVProperty` und Änderungen der gewählten Property unterstützen.
 
 ## Memory-Leak Check
 

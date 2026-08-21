@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#include "php.h"
+
 #include "../php_bacnet.h"
 
 /* BACnet stack — define BIP datalink before including headers */
@@ -52,6 +54,10 @@ typedef struct {
 	uint8_t pending_head;
 	uint8_t pending_count;
 	php_bacnet_cache *cache;
+	bool cov_handler_set;
+	zend_fcall_info_cache cov_fcc;
+	zval cov_handler_zv;
+	uint32_t next_cov_process_id;
 } php_bacnet_client;
 
 /* Collected I-Am response */

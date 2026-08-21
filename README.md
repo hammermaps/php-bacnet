@@ -53,6 +53,8 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 - **Explizite BACnet-Typen** — `Value::real()`, `Value::enumerated()`, `Value::characterString()` usw.
 - **Komplexe BACnet-Datentypen** — `BitString`, `Date`, `Time`, `ObjectIdentifier`
 - **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
+- **COV-Subscriptions** — entfernte Properties beobachten und Änderungen per
+  `onCovNotification()` im PHP-Event-Loop empfangen
 - **Mehrstufiger Client-Cache** — POSIX Shared Memory als fester L1, LMDB als
   persistentes Standard-L2 und austauschbare PHP-Backends
 - **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`

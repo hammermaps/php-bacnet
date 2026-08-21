@@ -26,6 +26,7 @@
 #include "bacnet/bacstr.h"
 #include "bacnet/datetime.h"
 #include "bacnet/datalink/bip.h"
+#include "bacnet/cov.h"
 
 #include "../php_bacnet.h"
 #include "bacnet_classes.h"
@@ -69,6 +70,39 @@ static zend_object_handlers php_bacnet_objectref_handlers;
 static zend_object_handlers php_bacnet_value_handlers;
 static zend_object_handlers php_bacnet_server_handlers;
 
+static bool php_bacnet_cov_dispatch(php_bacnet_client *client, const BACNET_ADDRESS *source,
+									uint8_t *apdu, uint16_t apdu_len, bool confirmed);
+static bool php_bacnet_server_send_apdu(BACNET_ADDRESS *dest, const uint8_t *apdu,
+										uint16_t apdu_len);
+
+static void php_bacnet_cov_handle_unsolicited(void *context, const BACNET_ADDRESS *source,
+											  uint8_t *pdu, uint16_t pdu_len) {
+	php_bacnet_client *client = (php_bacnet_client *)context;
+	BACNET_ADDRESS dest;
+	BACNET_ADDRESS npdu_source;
+	BACNET_NPDU_DATA npdu;
+	int offset = bacnet_npdu_decode(pdu, pdu_len, &dest, &npdu_source, &npdu);
+	if (offset < 0 || npdu.network_layer_message || (uint16_t)offset + 2 > pdu_len) {
+		return;
+	}
+	uint8_t *apdu = pdu + offset;
+	uint16_t apdu_len = pdu_len - (uint16_t)offset;
+	if ((apdu[0] & 0xF0) == PDU_TYPE_UNCONFIRMED_SERVICE_REQUEST &&
+		apdu[1] == SERVICE_UNCONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(client, source, apdu, apdu_len, false);
+		return;
+	}
+	if ((apdu[0] & 0xF0) == PDU_TYPE_CONFIRMED_SERVICE_REQUEST && apdu_len >= 5 &&
+		apdu[3] == SERVICE_CONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(client, source, apdu, apdu_len, true);
+		uint8_t ack[3];
+		int ack_len = encode_simple_ack(ack, apdu[2], SERVICE_CONFIRMED_COV_NOTIFICATION);
+		if (ack_len > 0) {
+			(void)php_bacnet_server_send_apdu((BACNET_ADDRESS *)source, ack, (uint16_t)ack_len);
+		}
+	}
+}
+
 static php_bacnet_client *php_bacnet_transport_from_owner(zval *owner) {
 	if (Z_TYPE_P(owner) != IS_OBJECT)
 		return NULL;
@@ -92,6 +126,46 @@ static void php_bacnet_mixed_queue_unsolicited(void *context, const BACNET_ADDRE
 	if (!php_bacnet_client_queue_pdu(srv->client, source, pdu, pdu_len)) {
 		php_bacnet_security_queue_overflow(srv->security);
 	}
+}
+
+static bool php_bacnet_cov_dispatch(php_bacnet_client *client, const BACNET_ADDRESS *source,
+									uint8_t *apdu, uint16_t apdu_len, bool confirmed) {
+	if (!client || !client->cov_handler_set || apdu_len < (confirmed ? 5 : 3))
+		return false;
+	BACNET_PROPERTY_VALUE values[8];
+	BACNET_COV_DATA data;
+	memset(&data, 0, sizeof(data));
+	bacapp_property_value_list_init(values, 8);
+	data.listOfValues = values;
+	unsigned offset = confirmed ? 4 : 2;
+	if (cov_notify_decode_service_request(apdu + offset, apdu_len - offset, &data) <= 0)
+		return false;
+	zval event, properties;
+	array_init(&event);
+	array_init(&properties);
+	add_assoc_long(&event, "subscriberProcessId", (zend_long)data.subscriberProcessIdentifier);
+	add_assoc_long(&event, "deviceId", (zend_long)data.initiatingDeviceIdentifier);
+	add_assoc_long(&event, "objectType", (zend_long)data.monitoredObjectIdentifier.type);
+	add_assoc_long(&event, "instance", (zend_long)data.monitoredObjectIdentifier.instance);
+	add_assoc_long(&event, "timeRemaining", (zend_long)data.timeRemaining);
+	for (BACNET_PROPERTY_VALUE *item = data.listOfValues; item; item = item->next) {
+		zval property, value;
+		array_init(&property);
+		add_assoc_long(&property, "property", (zend_long)item->propertyIdentifier);
+		add_assoc_long(&property, "arrayIndex", (zend_long)item->propertyArrayIndex);
+		bacapp_value_to_zval(&item->value, &value);
+		add_assoc_zval(&property, "value", &value);
+		add_next_index_zval(&properties, &property);
+	}
+	add_assoc_zval(&event, "properties", &properties);
+	zval retval;
+	ZVAL_UNDEF(&retval);
+	zend_call_known_function(client->cov_fcc.function_handler, client->cov_fcc.object,
+							 client->cov_fcc.called_scope, &retval, 1, &event, NULL);
+	zval_ptr_dtor(&event);
+	if (!Z_ISUNDEF(retval))
+		zval_ptr_dtor(&retval);
+	return EG(exception) == NULL;
 }
 
 /* ── Shared ReadProperty logic ───────────────────────────────────────────
@@ -814,6 +888,81 @@ PHP_METHOD(Bacnet_Client, clearCache) {
 PHP_METHOD(Bacnet_Client, setCacheBackend) {
 	php_bacnet_cache_method_set_backend(INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_cov_notification, 0, 1, IS_VOID, 0)
+ZEND_ARG_TYPE_INFO(0, handler, IS_CALLABLE, 0)
+ZEND_END_ARG_INFO()
+
+static void php_bacnet_cov_set_handler(INTERNAL_FUNCTION_PARAMETERS) {
+	zval *handler;
+	ZEND_PARSE_PARAMETERS_START(1, 1) Z_PARAM_ZVAL(handler) ZEND_PARSE_PARAMETERS_END();
+	php_bacnet_client *client = php_bacnet_transport_from_owner(ZEND_THIS);
+	if (!client) {
+		zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
+		RETURN_THROWS();
+	}
+	if (client->cov_handler_set)
+		zval_ptr_dtor(&client->cov_handler_zv);
+	char *error = NULL;
+	if (!zend_is_callable_ex(handler, NULL, 0, NULL, &client->cov_fcc, &error)) {
+		zend_throw_exception_ex(bacnet_ce_exception, 0, "onCovNotification: not callable: %s",
+								error ? error : "?");
+		efree(error);
+		RETURN_THROWS();
+	}
+	efree(error);
+	ZVAL_COPY(&client->cov_handler_zv, handler);
+	client->cov_handler_set = true;
+	if (instanceof_function(Z_OBJCE_P(ZEND_THIS), bacnet_ce_client)) {
+		client->unsolicited_handler = php_bacnet_cov_handle_unsolicited;
+		client->unsolicited_context = client;
+	}
+}
+PHP_METHOD(Bacnet_Client, onCovNotification) {
+	php_bacnet_cov_set_handler(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+PHP_METHOD(Bacnet_MixedServer, onCovNotification) {
+	php_bacnet_cov_set_handler(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_client_poll, 0, 0, IS_VOID, 0)
+ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, timeoutMs, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+PHP_METHOD(Bacnet_Client, poll) {
+	zend_long timeout = 0;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+	Z_PARAM_OPTIONAL Z_PARAM_LONG(timeout) ZEND_PARSE_PARAMETERS_END();
+	php_bacnet_client *client = Z_BACNET_CLIENT_P(ZEND_THIS)->client;
+	if (!client) {
+		zend_throw_exception(bacnet_ce_exception, "BACnet client not initialized", 0);
+		RETURN_THROWS();
+	}
+	uint8_t pdu[MAX_APDU + MAX_NPDU];
+	BACNET_ADDRESS source, dest, npdu_source;
+	BACNET_NPDU_DATA npdu;
+	uint16_t len = bip_receive(&source, pdu, sizeof(pdu), (unsigned)(timeout < 0 ? 0 : timeout));
+	if (!len)
+		return;
+	int offset = bacnet_npdu_decode(pdu, len, &dest, &npdu_source, &npdu);
+	if (offset < 0 || npdu.network_layer_message || (uint16_t)offset + 2 > len)
+		return;
+	uint8_t *apdu = pdu + offset;
+	uint16_t apdu_len = len - (uint16_t)offset;
+	if ((apdu[0] & 0xF0) == PDU_TYPE_UNCONFIRMED_SERVICE_REQUEST &&
+		apdu[1] == SERVICE_UNCONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(client, &source, apdu, apdu_len, false);
+		return;
+	}
+	if ((apdu[0] & 0xF0) == PDU_TYPE_CONFIRMED_SERVICE_REQUEST && apdu_len >= 5 &&
+		apdu[3] == SERVICE_CONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(client, &source, apdu, apdu_len, true);
+		uint8_t ack[3];
+		int ack_len = encode_simple_ack(ack, apdu[2], SERVICE_CONFIRMED_COV_NOTIFICATION);
+		if (ack_len > 0) {
+			(void)php_bacnet_server_send_apdu(&source, ack, (uint16_t)ack_len);
+		}
+	}
+}
 PHP_METHOD(Bacnet_MixedServer, setCacheOptions) {
 	php_bacnet_cache_method_set_options(INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
@@ -934,7 +1083,10 @@ static const zend_function_entry bacnet_client_methods[] = {
 										   arginfo_bacnet_cache_get_stats, ZEND_ACC_PUBLIC)
 				PHP_ME(Bacnet_Client, clearCache, arginfo_bacnet_cache_clear, ZEND_ACC_PUBLIC)
 					PHP_ME(Bacnet_Client, setCacheBackend, arginfo_bacnet_cache_set_backend,
-						   ZEND_ACC_PUBLIC) PHP_FE_END};
+						   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_Client, onCovNotification,
+												   arginfo_bacnet_cov_notification, ZEND_ACC_PUBLIC)
+						PHP_ME(Bacnet_Client, poll, arginfo_bacnet_client_poll, ZEND_ACC_PUBLIC)
+							PHP_FE_END};
 
 /* Client side of Bacnet\MixedServer. The class inherits all Server methods. */
 PHP_METHOD(Bacnet_MixedServer, whoIs) {
@@ -1050,7 +1202,9 @@ static const zend_function_entry bacnet_mixed_methods[] = {
 										   arginfo_bacnet_cache_get_stats, ZEND_ACC_PUBLIC)
 				PHP_ME(Bacnet_MixedServer, clearCache, arginfo_bacnet_cache_clear, ZEND_ACC_PUBLIC)
 					PHP_ME(Bacnet_MixedServer, setCacheBackend, arginfo_bacnet_cache_set_backend,
-						   ZEND_ACC_PUBLIC) PHP_FE_END};
+						   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_MixedServer, onCovNotification,
+												   arginfo_bacnet_cov_notification, ZEND_ACC_PUBLIC)
+						PHP_FE_END};
 
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Bacnet\Device                                                         */
@@ -1212,14 +1366,132 @@ PHP_METHOD(Bacnet_Device, writeProperty) {
 								   value_zv, (uint32_t)BACNET_G(default_timeout_ms));
 }
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_subscribe_cov, 0, 3, IS_LONG, 0)
+ZEND_ARG_OBJ_INFO(0, objectType, Bacnet\\ObjectType, 0)
+ZEND_ARG_TYPE_INFO(0, instance, IS_LONG, 0)
+ZEND_ARG_OBJ_INFO(0, property, Bacnet\\Property, 0)
+ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, lifetimeSeconds, IS_LONG, 0, "3600")
+ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, covIncrement, IS_DOUBLE, 1, "null")
+ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, subscriberProcessId, IS_LONG, 1, "null")
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Device, subscribeCOV) {
+	zval *type_zv, *property_zv;
+	zend_long instance, lifetime = 3600, process_id = 0;
+	double increment = 0;
+	bool increment_null = true, process_null = true;
+	ZEND_PARSE_PARAMETERS_START(3, 6)
+	Z_PARAM_OBJECT_OF_CLASS(type_zv, bacnet_ce_object_type_enum)
+	Z_PARAM_LONG(instance)
+	Z_PARAM_OBJECT_OF_CLASS(property_zv, bacnet_ce_property_enum)
+	Z_PARAM_OPTIONAL Z_PARAM_LONG(lifetime) Z_PARAM_DOUBLE_OR_NULL(increment, increment_null)
+		Z_PARAM_LONG_OR_NULL(process_id, process_null) ZEND_PARSE_PARAMETERS_END();
+	if (instance < 0 || instance > BACNET_MAX_INSTANCE || lifetime < 1 || lifetime > 86400 ||
+		(!process_null && process_id < 1)) {
+		zend_value_error("Invalid COV subscription parameters");
+		RETURN_THROWS();
+	}
+	php_bacnet_device_obj *device = Z_BACNET_DEVICE_P(ZEND_THIS);
+	php_bacnet_client *client = php_bacnet_transport_from_owner(&device->client_zval);
+	if (!client) {
+		zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
+		RETURN_THROWS();
+	}
+	php_bacnet_device_refresh_route(device);
+	zval *type = zend_enum_fetch_case_value(Z_OBJ_P(type_zv));
+	zval *property = zend_enum_fetch_case_value(Z_OBJ_P(property_zv));
+	uint32_t pid = process_null ? client->next_cov_process_id++ : (uint32_t)process_id;
+	if (pid == 0)
+		pid = client->next_cov_process_id++;
+	BACNET_SUBSCRIBE_COV_DATA data;
+	memset(&data, 0, sizeof(data));
+	data.subscriberProcessIdentifier = pid;
+	data.monitoredObjectIdentifier.type = (BACNET_OBJECT_TYPE)Z_LVAL_P(type);
+	data.monitoredObjectIdentifier.instance = (uint32_t)instance;
+	data.issueConfirmedNotifications = false;
+	data.lifetime = (uint32_t)lifetime;
+	data.covSubscribeToProperty = true;
+	data.monitoredProperty.property_identifier = (BACNET_PROPERTY_ID)Z_LVAL_P(property);
+	data.monitoredProperty.property_array_index = BACNET_ARRAY_ALL;
+	data.covIncrementPresent = !increment_null;
+	data.covIncrement = (float)increment;
+	uint8_t request[MAX_APDU], response[MAX_APDU];
+	uint16_t response_len = 0;
+	uint8_t invoke = (uint8_t)(pid & 0xFF);
+	int request_len = cov_subscribe_property_encode_apdu(request, sizeof(request), invoke, &data);
+	if (request_len <= 0 ||
+		php_bacnet_send_and_wait(client, &device->address, request, (uint16_t)request_len, invoke,
+								 response, &response_len,
+								 (uint32_t)BACNET_G(default_timeout_ms)) != 0) {
+		zend_throw_exception(bacnet_ce_timeout_exception, "SubscribeCOVProperty failed", 0);
+		RETURN_THROWS();
+	}
+	RETURN_LONG((zend_long)pid);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_bacnet_device_unsubscribe_cov, 0, 4, IS_VOID, 0)
+ZEND_ARG_OBJ_INFO(0, objectType, Bacnet\\ObjectType, 0)
+ZEND_ARG_TYPE_INFO(0, instance, IS_LONG, 0)
+ZEND_ARG_OBJ_INFO(0, property, Bacnet\\Property, 0)
+ZEND_ARG_TYPE_INFO(0, subscriberProcessId, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+PHP_METHOD(Bacnet_Device, unsubscribeCOV) {
+	zval *type_zv, *property_zv;
+	zend_long instance, process_id;
+	ZEND_PARSE_PARAMETERS_START(4, 4)
+	Z_PARAM_OBJECT_OF_CLASS(type_zv, bacnet_ce_object_type_enum)
+	Z_PARAM_LONG(instance)
+	Z_PARAM_OBJECT_OF_CLASS(property_zv, bacnet_ce_property_enum)
+	Z_PARAM_LONG(process_id)
+	ZEND_PARSE_PARAMETERS_END();
+	if (instance < 0 || instance > BACNET_MAX_INSTANCE || process_id < 1) {
+		zend_value_error("Invalid COV cancellation parameters");
+		RETURN_THROWS();
+	}
+	php_bacnet_device_obj *device = Z_BACNET_DEVICE_P(ZEND_THIS);
+	php_bacnet_client *client = php_bacnet_transport_from_owner(&device->client_zval);
+	if (!client) {
+		zend_throw_exception(bacnet_ce_exception, "Device has no associated client", 0);
+		RETURN_THROWS();
+	}
+	php_bacnet_device_refresh_route(device);
+	zval *type = zend_enum_fetch_case_value(Z_OBJ_P(type_zv));
+	zval *property = zend_enum_fetch_case_value(Z_OBJ_P(property_zv));
+	BACNET_SUBSCRIBE_COV_DATA data;
+	memset(&data, 0, sizeof(data));
+	data.subscriberProcessIdentifier = (uint32_t)process_id;
+	data.monitoredObjectIdentifier.type = (BACNET_OBJECT_TYPE)Z_LVAL_P(type);
+	data.monitoredObjectIdentifier.instance = (uint32_t)instance;
+	data.cancellationRequest = true;
+	data.covSubscribeToProperty = true;
+	data.monitoredProperty.property_identifier = (BACNET_PROPERTY_ID)Z_LVAL_P(property);
+	data.monitoredProperty.property_array_index = BACNET_ARRAY_ALL;
+	uint8_t request[MAX_APDU], response[MAX_APDU];
+	uint16_t response_len = 0;
+	uint8_t invoke = (uint8_t)((uint32_t)process_id & 0xFF);
+	int request_len = cov_subscribe_property_encode_apdu(request, sizeof(request), invoke, &data);
+	if (request_len <= 0 ||
+		php_bacnet_send_and_wait(client, &device->address, request, (uint16_t)request_len, invoke,
+								 response, &response_len,
+								 (uint32_t)BACNET_G(default_timeout_ms)) != 0) {
+		zend_throw_exception(bacnet_ce_timeout_exception,
+							 "SubscribeCOVProperty cancellation failed", 0);
+		RETURN_THROWS();
+	}
+}
+
 static const zend_function_entry bacnet_device_methods[] = {
-	PHP_ME(Bacnet_Device, getDeviceId, arginfo_bacnet_device_get_device_id, ZEND_ACC_PUBLIC)
-		PHP_ME(Bacnet_Device, getAddress, arginfo_bacnet_device_get_address, ZEND_ACC_PUBLIC)
-			PHP_ME(Bacnet_Device, getMaxApdu, arginfo_bacnet_device_get_max_apdu, ZEND_ACC_PUBLIC)
-				PHP_ME(Bacnet_Device, getVendorId, arginfo_bacnet_device_get_vendor_id,
-					   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_Device, readProperty,
-											   arginfo_bacnet_device_read_property, ZEND_ACC_PUBLIC)
-					PHP_ME(Bacnet_Device, writeProperty, arginfo_bacnet_device_write_property,
+	PHP_ME(Bacnet_Device, getDeviceId, arginfo_bacnet_device_get_device_id, ZEND_ACC_PUBLIC) PHP_ME(
+		Bacnet_Device, getAddress, arginfo_bacnet_device_get_address, ZEND_ACC_PUBLIC)
+		PHP_ME(Bacnet_Device, getMaxApdu, arginfo_bacnet_device_get_max_apdu, ZEND_ACC_PUBLIC)
+			PHP_ME(Bacnet_Device, getVendorId, arginfo_bacnet_device_get_vendor_id,
+				   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_Device, readProperty,
+										   arginfo_bacnet_device_read_property, ZEND_ACC_PUBLIC)
+				PHP_ME(Bacnet_Device, writeProperty, arginfo_bacnet_device_write_property,
+					   ZEND_ACC_PUBLIC) PHP_ME(Bacnet_Device, subscribeCOV,
+											   arginfo_bacnet_device_subscribe_cov, ZEND_ACC_PUBLIC)
+					PHP_ME(Bacnet_Device, unsubscribeCOV, arginfo_bacnet_device_unsubscribe_cov,
 						   ZEND_ACC_PUBLIC) PHP_FE_END};
 
 /* ────────────────────────────────────────────────────────────────────── */
@@ -2888,6 +3160,20 @@ PHP_METHOD(Bacnet_Server, poll) {
 	}
 
 	uint8_t pdu_type = apdu[0] & 0xF0;
+	if (pdu_type == PDU_TYPE_UNCONFIRMED_SERVICE_REQUEST &&
+		apdu[1] == SERVICE_UNCONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(srv->client, &src, apdu, apdu_len, false);
+		goto poll_done;
+	}
+	if (pdu_type == PDU_TYPE_CONFIRMED_SERVICE_REQUEST && apdu_len >= 5 &&
+		apdu[3] == SERVICE_CONFIRMED_COV_NOTIFICATION) {
+		(void)php_bacnet_cov_dispatch(srv->client, &src, apdu, apdu_len, true);
+		uint8_t ack[3];
+		int ack_len = encode_simple_ack(ack, apdu[2], SERVICE_CONFIRMED_COV_NOTIFICATION);
+		if (ack_len > 0)
+			php_bacnet_server_send_apdu(&src, ack, (uint16_t)ack_len);
+		goto poll_done;
+	}
 
 	/* ── Macro: send BACnet Error PDU back to src ─────────────────────── */
 #define BACNET_SEND_ERROR(iid, svc, ec, code)                                                      \
