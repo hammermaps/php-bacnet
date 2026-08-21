@@ -26,6 +26,12 @@ function rpmRequest(int $invokeId, string $objects): string {
     return "\x81\x0a" . pack('n', strlen($apdu) + 6) . "\x01\x00" . $apdu;
 }
 
+function expect(bool $condition, string $message): void {
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
 function rpmRoundTrip(Bacnet\Server $server, Socket $client, string $localIp, int $port, int $invokeId, string $objects): string {
     $packet = rpmRequest($invokeId, $objects);
     socket_sendto($client, $packet, strlen($packet), 0, $localIp, $port);
@@ -61,29 +67,29 @@ if ($client === false || !socket_bind($client, $localIp, 47808)) {
 /* Zwei Eigenschaften eines Objekts sowie ein weiteres Objekt. */
 $response = rpmRoundTrip($server, $client, $localIp, $port, 0x21,
     rpmObject(2, 1, [77, 85]) . rpmObject(2, 2, [85]));
-assert(substr($response, 6, 3) === "\x30\x21\x0e");
-assert(str_contains($response, 'object-1'));
-assert(str_contains($response, pack('G', 10.0)));
-assert(str_contains($response, pack('G', 20.0)));
+expect(substr($response, 6, 3) === "\x30\x21\x0e", 'RPM-ACK für mehrere Objekte fehlt.');
+expect(str_contains($response, 'object-1'), 'Objektkontext für object-1 ging verloren.');
+expect(str_contains($response, pack('G', 10.0)), 'Present_Value von object-1 fehlt.');
+expect(str_contains($response, pack('G', 20.0)), 'Present_Value von object-2 fehlt.');
 echo "mehrere Eigenschaften und Objekte: OK\n";
 
 /* PROP_ALL liefert die definierten Eigenschaften des lokalen Objekts. */
 $response = rpmRoundTrip($server, $client, $localIp, $port, 0x22, rpmObject(2, 1, [8]));
-assert(substr($response, 6, 3) === "\x30\x22\x0e");
-assert(str_contains($response, 'object-1'));
-assert(str_contains($response, pack('G', 10.0)));
+expect(substr($response, 6, 3) === "\x30\x22\x0e", 'RPM-ACK für PROP_ALL fehlt.');
+expect(str_contains($response, 'object-1'), 'PROP_ALL enthält keinen Object_Name.');
+expect(str_contains($response, pack('G', 10.0)), 'PROP_ALL enthält keinen Present_Value.');
 echo "PROP_ALL: OK\n";
 
 /* Unbekannte Eigenschaften werden als PropertyAccessError kodiert. */
 $response = rpmRoundTrip($server, $client, $localIp, $port, 0x23, rpmObject(2, 1, [250]));
-assert(substr($response, 6, 3) === "\x30\x23\x0e");
-assert(str_contains($response, "\x5e\x91\x02\x91\x20\x5f"));
+expect(substr($response, 6, 3) === "\x30\x23\x0e", 'RPM-ACK für unbekannte Property fehlt.');
+expect(str_contains($response, "\x5e\x91\x02\x91\x20\x5f"), 'PropertyAccessError fehlt.');
 echo "Property-Fehler: OK\n";
 
-/* Eine RPM-Antwort oberhalb von 480 Byte wird BACnet-konform abgebrochen. */
+/* Eine RPM-Antwort oberhalb des implementierten APDU-Puffers wird BACnet-konform abgebrochen. */
 $response = rpmRoundTrip($server, $client, $localIp, $port, 0x24,
-    rpmObject(2, 1, array_fill(0, 80, 85)));
-assert(substr($response, 6, 3) === "\x71\x24\x04");
+    rpmObject(2, 1, array_fill(0, 250, 85)));
+expect(substr($response, 6, 3) === "\x71\x24\x04", 'APDU-Abort fehlt.');
 echo "APDU-Abort: OK\n";
 ?>
 --EXPECT--
