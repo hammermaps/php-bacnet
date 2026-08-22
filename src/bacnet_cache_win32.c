@@ -401,9 +401,11 @@ static void php_bacnet_win_unlock(php_bacnet_cache *cache) {
 
 static bool php_bacnet_win_open_shared(php_bacnet_cache *cache) {
 	char mutex_name[160];
-	uint64_t hash = php_bacnet_win_hash_string(cache->namespace_name);
-	snprintf(cache->shm_name, sizeof(cache->shm_name), "Local\\php_bacnet_%016llx",
-			 (unsigned long long)hash);
+	if (!cache->shm_name[0]) {
+		uint64_t hash = php_bacnet_win_hash_string(cache->namespace_name);
+		snprintf(cache->shm_name, sizeof(cache->shm_name), "Local\\php_bacnet_%016llx",
+				 (unsigned long long)hash);
+	}
 	snprintf(mutex_name, sizeof(mutex_name), "%s_mutex", cache->shm_name);
 	cache->mutex = CreateMutexA(NULL, FALSE, mutex_name);
 	cache->mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
@@ -465,6 +467,8 @@ php_bacnet_cache *php_bacnet_cache_create(const char *iface, uint16_t port) {
 	else
 		snprintf(cache->namespace_name, sizeof(cache->namespace_name), "%s:%u",
 				 iface ? iface : "auto", port);
+	if (BACNET_G(cache_shm_name) && *BACNET_G(cache_shm_name))
+		snprintf(cache->shm_name, sizeof(cache->shm_name), "%s", BACNET_G(cache_shm_name));
 	snprintf(cache->lmdb_path, sizeof(cache->lmdb_path), "%s", BACNET_G(cache_lmdb_path));
 	ZVAL_UNDEF(&cache->backend);
 	cache->l2 = !BACNET_G(cache_l2_backend) || strcmp(BACNET_G(cache_l2_backend), "none")
@@ -773,6 +777,10 @@ bool php_bacnet_cache_set_options(php_bacnet_cache *cache, HashTable *options,
 			snprintf(cache->namespace_name, sizeof(cache->namespace_name), "%s", Z_STRVAL_P(value));
 			reopen_shared = true;
 			reopen_lmdb = true;
+		} else if (!strcmp(name, "shm_name") && Z_TYPE_P(value) == IS_STRING &&
+				   Z_STRLEN_P(value) > 0 && Z_STRLEN_P(value) < sizeof(cache->shm_name)) {
+			snprintf(cache->shm_name, sizeof(cache->shm_name), "%s", Z_STRVAL_P(value));
+			reopen_shared = true;
 		} else if (!strcmp(name, "lmdb_path") && Z_TYPE_P(value) == IS_STRING &&
 				   Z_STRLEN_P(value) > 0 && Z_STRLEN_P(value) < sizeof(cache->lmdb_path)) {
 			snprintf(cache->lmdb_path, sizeof(cache->lmdb_path), "%s", Z_STRVAL_P(value));

@@ -27,6 +27,9 @@ Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den
 Instanzcache und öffnet sie mit der neuen Konfiguration erneut.
 
+`shm_name` bestimmt unter Windows den Namen des Shared-Memory-Objekts (etwa
+`Local\\php_bacnet_building_a`); unter Unix bleibt es ein POSIX-Segmentname.
+
 `setCacheBackend()` ist unter Windows NTS ebenfalls verfügbar und ersetzt LMDB
 instanzweise durch ein `Bacnet\CacheBackendInterface`.
 
@@ -77,7 +80,7 @@ Deployments auf demselben Host sollte ein expliziter Namespace gesetzt werden.
 | `bacnet.cache_enabled` | `1` | Gesamten Client-Cache aktivieren |
 | `bacnet.cache_l2_backend` | `lmdb` | `lmdb` oder `"none"`; ein PHP-Adapter setzt intern `callback` |
 | `bacnet.cache_namespace` | leer | Automatisch `Interface:Port` |
-| `bacnet.cache_shm_name` | leer | Automatisch gehashter POSIX-Segmentname |
+| `bacnet.cache_shm_name` | leer | Automatisch gehashter Shared-Memory-Name |
 | `bacnet.cache_lmdb_path` | `/var/cache/php-bacnet` | Vorhandenes, beschreibbares LMDB-Verzeichnis |
 | `bacnet.cache_l1_max_bytes` | `16777216` | Logische L1-Speichergrenze |
 | `bacnet.cache_l2_max_bytes` | `16777216` | Logische L2-Speichergrenze |
