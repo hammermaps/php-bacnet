@@ -136,8 +136,10 @@ Ein beliebiges `Bacnet\CacheBackendInterface` kann LMDB pro Instanz ersetzen,
 beispielsweise für Redis oder Memcached. Siehe
 [Client-Cache](docs/client-cache.md).
 
-Unter Windows NTS steht ein begrenzter prozesslokaler Cache zur Verfügung; LMDB,
-Shared Memory und eigene Cache-Backends sind Unix-Funktionen.
+Unter Windows NTS steht derselbe zweistufige Cache zur Verfügung: ein auf 256
+Einträge begrenzter, benannter Shared-Memory-L1 und das mitgelieferte LMDB als
+persistentes L2. Das LMDB-Verzeichnis muss unter Windows ausdrücklich auf ein
+vorhandenes, für den PHP-Prozess beschreibbares Verzeichnis gesetzt werden.
 
 ---
 
