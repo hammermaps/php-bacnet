@@ -17,6 +17,14 @@ final class WindowsMemoryBackend implements Bacnet\CacheBackendInterface {
     public function getGeneration(string $namespace, string $partition): int { return 0; }
     public function bumpGeneration(string $namespace, string $partition): int { return 1; }
 }
+final class ThrowingWindowsBackend implements Bacnet\CacheBackendInterface {
+    public function get(string $namespace, string $partition, string $key): ?string { return null; }
+    public function set(string $namespace, string $partition, string $key, string $payload, int $expiresAtMs, int $maxEntries): void {}
+    public function invalidate(string $namespace, string $partition, string $scope): void {}
+    public function clear(string $namespace, ?string $partition): void { throw new RuntimeException('test'); }
+    public function getGeneration(string $namespace, string $partition): int { return 0; }
+    public function bumpGeneration(string $namespace, string $partition): int { return 1; }
+}
 $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'php-bacnet-windows-phpt-cache';
 @mkdir($path, 0700, true);
 ini_set('bacnet.cache_lmdb_path', $path);
@@ -48,6 +56,10 @@ $client->setCacheOptions(['l2_backend' => 'lmdb']);
 echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
 $client->setCacheBackend(new WindowsMemoryBackend());
 echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
+set_error_handler(static fn() => true);
+$client->setCacheBackend(new ThrowingWindowsBackend());
+restore_error_handler();
+var_dump($client->getCacheStats()['backend_errors'] > 0);
 unset($client);
 @unlink($path . DIRECTORY_SEPARATOR . 'data.mdb');
 @unlink($path . DIRECTORY_SEPARATOR . 'lock.mdb');
@@ -69,3 +81,4 @@ bool(true)
 none
 lmdb
 callback
+bool(true)

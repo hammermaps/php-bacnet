@@ -40,6 +40,10 @@ einschließlich `negative_hits`, `allocation_failures`, `l1_entries`, `l1_bytes`
 und `backend_errors`. Fehler eines PHP-Backends werden fail-open behandelt und
 höchstens einmal je `log_interval` als PHP-Warnung ausgegeben.
 
+Die Windows-PHPT-Suite deckt auch einen absichtlich fehlschlagenden Backend-
+Callback ab: Die Ausnahme erreicht den Aufrufer nicht, und `backend_errors`
+steigt an.
+
 ## Installation
 
 LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte
