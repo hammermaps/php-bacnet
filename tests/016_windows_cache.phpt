@@ -17,10 +17,21 @@ $options = $client->getCacheOptions();
 echo $options['l1_backend'], PHP_EOL;
 echo $options['l2_backend'], PHP_EOL;
 var_dump($options['enabled']);
-$client->setCacheOptions(['enabled' => true, 'state_enabled' => true, 'state_ttl' => 2.5]);
+$client->setCacheOptions([
+    'enabled' => true,
+    'state_enabled' => true,
+    'state_ttl' => 2.5,
+    'state_max_entries' => 3,
+]);
 $options = $client->getCacheOptions();
 var_dump($options['state_enabled'], $options['state_ttl']);
+var_dump($options['state_max_entries']);
+echo $options['l2_backend'], PHP_EOL;
 var_dump($client->getCacheStats()['l2_available']);
+$client->setCacheOptions(['l2_backend' => 'none']);
+echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
+$client->setCacheOptions(['l2_backend' => 'lmdb']);
+echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
 unset($client);
 @unlink($path . DIRECTORY_SEPARATOR . 'data.mdb');
 @unlink($path . DIRECTORY_SEPARATOR . 'lock.mdb');
@@ -28,8 +39,12 @@ unset($client);
 ?>
 --EXPECT--
 shared_memory
-none
+lmdb
 bool(false)
 bool(true)
 float(2.5)
+int(3)
+lmdb
 bool(true)
+none
+lmdb

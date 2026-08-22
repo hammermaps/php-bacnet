@@ -14,8 +14,14 @@ teilen alle FastCGI-Prozesse desselben Windows-Hosts die Einträge. Das
 mitgelieferte LMDB stellt darüber ein persistentes L2 bereit. Das mit
 `bacnet.cache_lmdb_path` konfigurierte Verzeichnis muss bereits existieren und
 für den PHP-Prozess beschreibbar sein. `getCacheOptions()` meldet bei aktivem
-Cache `l1_backend=shared_memory` und `l2_backend=lmdb`; bei deaktiviertem Cache
-ist L2 nicht geöffnet und wird als `none` gemeldet.
+Cache `l1_backend=shared_memory` und `l2_backend=lmdb`. Bei deaktiviertem Cache
+bleibt die konfigurierte L2-Auswahl sichtbar, während `l2_available` in den
+Statistiken `false` meldet, solange LMDB nicht geöffnet ist.
+
+Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
+`*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
+Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den
+Instanzcache und öffnet sie mit der neuen Konfiguration erneut.
 
 ## Installation
 
