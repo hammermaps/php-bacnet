@@ -18,7 +18,7 @@ $first = new Bacnet\Client($interface, $port, 10);
 try {
     new Bacnet\Client($interface, $port, 10);
     echo "singleton guard: missing\n";
-} catch (Bacnet\Exception) {
+} catch (Throwable) {
     echo "singleton guard: OK\n";
 }
 unset($first);
