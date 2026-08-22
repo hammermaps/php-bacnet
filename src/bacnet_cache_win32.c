@@ -90,6 +90,8 @@ static uint64_t php_bacnet_win_hash_bytes(const uint8_t *data, size_t length) {
 }
 
 static const char *php_bacnet_win_partition_name(php_bacnet_cache_partition partition);
+static bool php_bacnet_win_lock(php_bacnet_cache *cache);
+static void php_bacnet_win_unlock(php_bacnet_cache *cache);
 
 static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *method, uint32_t argc,
 										 zval *args, zval *retval) {
