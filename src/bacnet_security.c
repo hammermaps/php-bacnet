@@ -163,8 +163,10 @@ static void php_bacnet_security_options_from_ini(security_options *o) {
 						 : 0;
 	o->source_ttl = BACNET_G(server_source_ttl);
 	o->log_interval = BACNET_G(server_log_interval);
-	o->allowed_networks = estrdup(BACNET_G(server_allowed_networks) ?: "");
-	o->denied_networks = estrdup(BACNET_G(server_denied_networks) ?: "");
+	o->allowed_networks =
+		estrdup(BACNET_G(server_allowed_networks) ? BACNET_G(server_allowed_networks) : "");
+	o->denied_networks =
+		estrdup(BACNET_G(server_denied_networks) ? BACNET_G(server_denied_networks) : "");
 }
 
 static bool php_bacnet_security_valid_number(double value) {
