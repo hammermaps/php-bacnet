@@ -60,9 +60,10 @@ bestätigen:
   PHP-Versionen.
 
 Bei einem Publish wird jeder unterstützte Wartungszweig getrennt geprüft. Ein
-GitHub- und PIE-Release wird für einen Zweig nur erzeugt, wenn seit seinem
-letzten Release relevante, veröffentlichbare Änderungen vorliegen. Ohne solche
-Änderungen wird weder ein neuer Tag noch ein leerer Release erstellt.
+GitHub- und PIE-Release wird für einen Zweig nur erzeugt, wenn sich seit seinem
+letzten PIE-Release auslieferbarer Erweiterungscode geändert hat. Reine
+README-, Agenten-, CI- oder Dokumentationsänderungen erzeugen keinen Tag und
+keinen leeren Release.
 
 Ein erforderlicher GitHub-Release wird erst nach grüner Matrix erzeugt. Der Tag
 zeigt auf den entsprechenden Wartungszweig, die Release-Notizen sind auf Deutsch
