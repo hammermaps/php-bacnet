@@ -45,6 +45,6 @@ enthält Submodule nicht vollständig. PIE lädt dieses Artefakt vor dem Build.
 Lokal lässt sich das Paket prüfen:
 
 ```bash
-PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.1.3
-tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.1.3-src.tgz | head
+PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.2.0
+tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.2.0-src.tgz | head
 ```

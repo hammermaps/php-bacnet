@@ -2,6 +2,23 @@
 
 All notable changes to php-bacnet are documented here.
 
+## [0.2.0] — 2026-08-22
+
+### Added
+
+- Windows-NTS-Builds fuer PHP 8.4 und 8.5 mit GitHub Actions und gebuendeltem
+  LMDB. Der Client- und MixedServer-Cache steht damit auch unter Windows zur
+  Verfuegung.
+- Benanntes Windows-Shared-Memory als L1, persistentes LMDB als L2 sowie
+  dieselben PHP-Cacheoptionen, Statistiken und Callback-Backends wie unter
+  Unix.
+
+### Changed
+
+- L1-Speichergrenzen, Partitionsgrenzen, LRU-Verdrängung, L2-Refills und
+  detaillierte Cache-Statistiken sind unter Linux und Windows PHP-seitig
+  einheitlich.
+
 ## [0.1.3] — 2026-08-22
 
 ### Added

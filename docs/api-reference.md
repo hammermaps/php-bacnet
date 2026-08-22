@@ -1,6 +1,6 @@
 # php-bacnet — API-Referenz
 
-> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.1.3
+> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.2.0
 > Stil: [php.net](https://www.php.net/manual/de/) Referenzhandbuch
 
 ---
@@ -18,7 +18,8 @@
 Client und MixedServer stellen zusätzlich `setCacheOptions()`,
 `getCacheOptions()`, `getCacheStats()`, `clearCache()` und
 `setCacheBackend()` bereit. L1 ist immer POSIX Shared Memory, L2 standardmäßig
-LMDB. `whoIs()` und `readProperty()` besitzen einen optionalen letzten
+LMDB. Unter Windows NTS verwendet L1 benanntes Shared Memory; unter Unix
+POSIX Shared Memory. `whoIs()` und `readProperty()` besitzen einen optionalen letzten
 `refresh`-Parameter. Alle Optionen und das generische
 `Bacnet\CacheBackendInterface` beschreibt [client-cache.md](client-cache.md).
    - [Bacnet\ObjectRef](#bacnetobjectref)
@@ -61,7 +62,7 @@ und stellt eine typsichere, objektorientierte API im Namensraum `Bacnet\` bereit
 | WeeklySchedule | WEEKLY_SCHEDULE lesen (Dekodierung) |
 | TrendLog | LOG_BUFFER als `TrendLogRecord[]` lesen |
 
-**Einschränkungen in v0.1.3:**
+**Einschränkungen in v0.2.0:**
 
 - Genau ein `Client` oder `Server` pro PHP-Prozess (prozess-globaler UDP-Socket).
 - `whoIs()` sammelt maximal 64 Geräte pro Aufruf.
