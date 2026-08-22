@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
 <p align="center">
-  <img src="assets/php-bacnet-logo.jpg" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
+  <img src="assets/php-bacnet-logo.png" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
 </p>
 
 **php-bacnet** ist eine native C-Erweiterung für PHP 8.4 und 8.5, die vollständige
