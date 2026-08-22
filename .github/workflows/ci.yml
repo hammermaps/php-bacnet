@@ -30,7 +30,6 @@ jobs:
             build-essential \
             cmake \
             clang-format \
-            liblmdb-dev \
             valgrind
 
       - name: phpize

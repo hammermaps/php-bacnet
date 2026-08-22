@@ -7,7 +7,7 @@ Windows stehen vorkompilierte NTS-DLL-Artefakte aus den GitHub-Releases bereit.
 
 - PHP 8.4 oder neuer inklusive passendem `phpize` und `php-config` (Linux/macOS)
 - C-Compiler, `make` und CMake
-- LMDB-Entwicklungspaket (z. B. `liblmdb-dev` auf Debian/Ubuntu)
+- keine systemweite LMDB-Bibliothek; die fest gepinnte LMDB-Quelle wird mitgebaut
 
 PIE baut die mitgelieferte `bacnet-stack`-Bibliothek während `configure`
 automatisch als statische Bibliothek. Deshalb ist kein manueller Aufruf von
