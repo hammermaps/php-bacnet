@@ -26,8 +26,8 @@ Partition begrenzt. Erreicht eine Partition ihre Grenze, ersetzt sie ihren
 der global älteste L1-Eintrag. Einzelne Werte, die größer als die Grenze sind,
 überspringen L1 und bleiben für LMDB beziehungsweise ein PHP-L2 verfügbar.
 Auch wenn der Windows-L1 nicht geöffnet werden kann, bleiben LMDB und ein
-konfiguriertes PHP-L2 aktiv. L2-Treffer werden nur dann in L1 übernommen, wenn
-Partitions- und Speichergrenze dies erlauben.
+konfiguriertes PHP-L2 aktiv. L2-Treffer werden mit derselben Partitions- und
+LRU-Strategie wie reguläre Schreibvorgänge in L1 übernommen.
 
 Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 `*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
@@ -47,7 +47,8 @@ Treffer.
 
 `getCacheStats()` liefert unter Windows dieselben Kernmetriken wie unter Unix,
 einschließlich `negative_hits`, `allocation_failures`, `l1_entries`, `l1_bytes`
-und `backend_errors`. Fehler eines PHP-Backends werden fail-open behandelt und
+und `backend_errors`; mit `includeEntries: true` enthält es auf beiden Plattformen
+bis zu 128 L1-Einträge. Fehler eines PHP-Backends werden fail-open behandelt und
 höchstens einmal je `log_interval` als PHP-Warnung ausgegeben.
 
 Die Windows-PHPT-Suite deckt auch einen absichtlich fehlschlagenden Backend-
@@ -89,7 +90,7 @@ Deployments auf demselben Host sollte ein expliziter Namespace gesetzt werden.
 | `bacnet.cache_namespace` | leer | Automatisch `Interface:Port` |
 | `bacnet.cache_shm_name` | leer | Automatisch gehashter Shared-Memory-Name |
 | `bacnet.cache_lmdb_path` | `/var/cache/php-bacnet` | Vorhandenes, beschreibbares LMDB-Verzeichnis |
-| `bacnet.cache_l1_max_bytes` | `16777216` | Logische L1-Speichergrenze |
+| `bacnet.cache_l1_max_bytes` | `16777216` | Durchgesetzte L1-Speichergrenze |
 | `bacnet.cache_l2_max_bytes` | `16777216` | Logische L2-Speichergrenze |
 | `bacnet.cache_lmdb_map_size` | `67108864` | LMDB-Map-Größe |
 | `bacnet.cache_coherence_interval_ms` | `1000` | Maximales Prüfintervall externer Generationen |

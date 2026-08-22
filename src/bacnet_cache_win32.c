@@ -138,6 +138,89 @@ static void php_bacnet_win_clear_l1_partition(php_bacnet_cache *cache, int parti
 	php_bacnet_win_unlock(cache);
 }
 
+/* Store L2 refills and regular writes with the identical partition and LRU
+ * policy. L2 remains useful when the compact Windows L1 is full. */
+static bool php_bacnet_win_l1_put(php_bacnet_cache *cache, php_bacnet_cache_partition partition,
+								  const char *key, const uint8_t *data, uint32_t length,
+								  uint64_t expiry) {
+	if (!cache->shared || length > PHP_BACNET_WIN_CACHE_VALUE_MAX ||
+		strlen(key) >= PHP_BACNET_WIN_CACHE_KEY_MAX || !php_bacnet_win_lock(cache)) {
+		if (length > PHP_BACNET_WIN_CACHE_VALUE_MAX || strlen(key) >= PHP_BACNET_WIN_CACHE_KEY_MAX)
+			cache->allocation_failures++;
+		return false;
+	}
+	php_bacnet_win_cache_entry *target = NULL;
+	php_bacnet_win_cache_entry *partition_lru = NULL;
+	php_bacnet_win_cache_entry *global_lru = NULL;
+	bool found = false;
+	uint64_t partition_oldest = UINT64_MAX;
+	uint64_t global_oldest = UINT64_MAX;
+	uint32_t partition_entries = 0;
+	size_t used_bytes = 0;
+	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
+		php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+		if (entry->used) {
+			used_bytes += entry->length;
+			if (entry->partition == partition)
+				partition_entries++;
+		}
+		if (entry->used && entry->partition == partition && !strcmp(entry->key, key)) {
+			target = entry;
+			found = true;
+		}
+		if (!target && !entry->used)
+			target = entry;
+		if (entry->used && entry->partition == partition && entry->touched < partition_oldest) {
+			partition_oldest = entry->touched;
+			partition_lru = entry;
+		}
+		if (entry->used && entry->touched < global_oldest) {
+			global_oldest = entry->touched;
+			global_lru = entry;
+		}
+	}
+	if (!found && (partition_entries >= cache->max_entries[partition] || !target)) {
+		target = partition_entries >= cache->max_entries[partition] ? partition_lru : global_lru;
+		if (!target) {
+			cache->allocation_failures++;
+			php_bacnet_win_unlock(cache);
+			return false;
+		}
+		cache->evictions++;
+	}
+	if (length > cache->l1_max_bytes) {
+		cache->allocation_failures++;
+		php_bacnet_win_unlock(cache);
+		return false;
+	}
+	size_t projected_bytes = used_bytes - (target->used ? target->length : 0) + length;
+	while (projected_bytes > cache->l1_max_bytes) {
+		php_bacnet_win_cache_entry *victim = NULL;
+		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
+			php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+			if (entry != target && entry->used && (!victim || entry->touched < victim->touched))
+				victim = entry;
+		}
+		if (!victim) {
+			cache->allocation_failures++;
+			php_bacnet_win_unlock(cache);
+			return false;
+		}
+		projected_bytes -= victim->length;
+		victim->used = false;
+		cache->evictions++;
+	}
+	target->used = true;
+	target->partition = partition;
+	target->length = length;
+	target->expires_at_ms = expiry;
+	target->touched = ++cache->shared->tick;
+	memcpy(target->key, key, strlen(key) + 1);
+	memcpy(target->value, data, length);
+	php_bacnet_win_unlock(cache);
+	return true;
+}
+
 static void php_bacnet_win_callback_bump_generation(php_bacnet_cache *cache,
 													php_bacnet_cache_partition partition) {
 	if (cache->l2 != PHP_BACNET_WIN_L2_CALLBACK || !cache->backend_active)
@@ -560,32 +643,7 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	if (l2_hit) {
 		uint64_t expiry =
 			php_bacnet_platform_wall_ms() + (uint64_t)(cache->ttl[partition] * 1000.0);
-		if (cache->shared && *length <= cache->l1_max_bytes && php_bacnet_win_lock(cache)) {
-			php_bacnet_win_cache_entry *target = NULL;
-			size_t used_bytes = 0;
-			uint32_t partition_entries = 0;
-			for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-				php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
-				if (entry->used) {
-					used_bytes += entry->length;
-					if (entry->partition == partition)
-						partition_entries++;
-				} else if (!target) {
-					target = entry;
-				}
-			}
-			if (target && partition_entries < cache->max_entries[partition] &&
-				used_bytes + *length <= cache->l1_max_bytes) {
-				target->used = true;
-				target->partition = partition;
-				target->length = *length;
-				target->expires_at_ms = expiry;
-				target->touched = ++cache->shared->tick;
-				memcpy(target->key, key, strlen(key) + 1);
-				memcpy(target->value, data, *length);
-			}
-			php_bacnet_win_unlock(cache);
-		}
+		php_bacnet_win_l1_put(cache, partition, key, data, *length, expiry);
 		cache->hits++;
 		if (partition == PHP_BACNET_CACHE_NEGATIVE)
 			cache->negative_hits++;
@@ -607,84 +665,9 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	}
 	char lmdb_key[512];
 	php_bacnet_win_key(cache, partition, key, lmdb_key, sizeof(lmdb_key));
-	if (!cache->shared || !php_bacnet_win_lock(cache))
-		goto write_l2;
-	php_bacnet_win_cache_entry *target = NULL;
-	php_bacnet_win_cache_entry *partition_lru = NULL;
-	php_bacnet_win_cache_entry *global_lru = NULL;
-	bool found = false;
-	uint64_t partition_oldest = UINT64_MAX;
-	uint64_t global_oldest = UINT64_MAX;
-	uint32_t partition_entries = 0;
-	size_t used_bytes = 0;
-	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-		php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
-		if (entry->used) {
-			used_bytes += entry->length;
-			if (entry->partition == partition)
-				partition_entries++;
-		}
-		if (entry->used && entry->partition == partition && !strcmp(entry->key, key)) {
-			target = entry;
-			found = true;
-		}
-		if (!target && !entry->used)
-			target = entry;
-		if (entry->used && entry->partition == partition && entry->touched < partition_oldest) {
-			partition_oldest = entry->touched;
-			partition_lru = entry;
-		}
-		if (entry->used && entry->touched < global_oldest) {
-			global_oldest = entry->touched;
-			global_lru = entry;
-		}
-	}
-	if (!found && (partition_entries >= cache->max_entries[partition] || !target)) {
-		if (partition_entries >= cache->max_entries[partition])
-			target = partition_lru;
-		else if (!target)
-			target = global_lru;
-		if (!target) {
-			cache->invalidations++;
-			php_bacnet_win_unlock(cache);
-			return;
-		}
-		cache->evictions++;
-	}
-	if (length > cache->l1_max_bytes) {
-		cache->allocation_failures++;
-		php_bacnet_win_unlock(cache);
-		goto write_l2;
-	}
-	size_t projected_bytes = used_bytes - (target->used ? target->length : 0) + length;
-	while (projected_bytes > cache->l1_max_bytes) {
-		php_bacnet_win_cache_entry *victim = NULL;
-		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-			php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
-			if (entry != target && entry->used && (!victim || entry->touched < victim->touched))
-				victim = entry;
-		}
-		if (!victim) {
-			cache->allocation_failures++;
-			php_bacnet_win_unlock(cache);
-			goto write_l2;
-		}
-		projected_bytes -= victim->length;
-		victim->used = false;
-		cache->evictions++;
-	}
-	target->used = true;
-	target->partition = partition;
-	target->length = length;
-	target->expires_at_ms = php_bacnet_platform_wall_ms() + (uint64_t)(ttl_seconds * 1000.0);
-	uint64_t expiry = target->expires_at_ms;
-	target->touched = ++cache->shared->tick;
-	memcpy(target->key, key, strlen(key) + 1);
-	memcpy(target->value, data, length);
-	cache->stores++;
-	php_bacnet_win_unlock(cache);
-
-write_l2:
+	uint64_t expiry = php_bacnet_platform_wall_ms() + (uint64_t)(ttl_seconds * 1000.0);
+	if (php_bacnet_win_l1_put(cache, partition, key, data, length, expiry))
+		cache->stores++;
 	if (cache->l2 == PHP_BACNET_WIN_L2_LMDB) {
 		php_bacnet_win_lmdb_put(cache, lmdb_key, data, length, expiry);
 		php_bacnet_win_lmdb_prune(cache, partition);
@@ -972,11 +955,26 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 														   : true);
 	add_assoc_long(return_value, "backend_errors", (zend_long)cache->backend_errors);
 	zend_long entries = 0, bytes = 0;
+	zval cache_entries;
+	if (include_entries)
+		array_init(&cache_entries);
 	if (cache->shared && php_bacnet_win_lock(cache)) {
 		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
 			if (cache->shared->entries[i].used) {
 				entries++;
 				bytes += cache->shared->entries[i].length;
+				if (include_entries && zend_hash_num_elements(Z_ARRVAL(cache_entries)) < 128) {
+					zval item;
+					array_init(&item);
+					add_assoc_string(
+						&item, "partition",
+						(char *)php_bacnet_win_partition_name(cache->shared->entries[i].partition));
+					add_assoc_string(&item, "key", cache->shared->entries[i].key);
+					add_assoc_long(&item, "bytes", cache->shared->entries[i].length);
+					add_assoc_long(&item, "expires_at_ms",
+								   (zend_long)cache->shared->entries[i].expires_at_ms);
+					add_next_index_zval(&cache_entries, &item);
+				}
 			}
 		php_bacnet_win_unlock(cache);
 	}
@@ -995,6 +993,8 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 	} else
 		add_assoc_null(return_value, "l2_entries");
 	add_assoc_null(return_value, "l2_bytes");
+	if (include_entries)
+		add_assoc_zval(return_value, "entries", &cache_entries);
 	if (reset)
 		cache->hits = cache->misses = cache->stores = cache->expirations = cache->evictions =
 			cache->invalidations = cache->refreshes = cache->negative_hits = cache->backend_errors =
