@@ -35,6 +35,11 @@ im Intervall `bacnet.cache_coherence_interval_ms`. Ein geänderter Wert leert nu
 die betroffene L1-Partition und verhindert damit Worker-übergreifend veraltete
 Treffer.
 
+`getCacheStats()` liefert unter Windows dieselben Kernmetriken wie unter Unix,
+einschließlich `negative_hits`, `allocation_failures`, `l1_entries`, `l1_bytes`
+und `backend_errors`. Fehler eines PHP-Backends werden fail-open behandelt und
+höchstens einmal je `log_interval` als PHP-Warnung ausgegeben.
+
 ## Installation
 
 LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte

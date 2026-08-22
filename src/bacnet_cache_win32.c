@@ -65,6 +65,9 @@ struct php_bacnet_cache {
 	size_t l2_max_bytes;
 	size_t lmdb_map_size;
 	uint32_t coherence_interval_ms;
+	double log_interval;
+	double negative_read_ttl;
+	uint64_t last_log_ms;
 	php_bacnet_win_l2 l2;
 	zval backend;
 	bool backend_active;
@@ -72,7 +75,7 @@ struct php_bacnet_cache {
 	uint64_t last_coherence_ms[PHP_BACNET_CACHE_PARTITION_COUNT];
 	uint64_t generations[PHP_BACNET_CACHE_PARTITION_COUNT];
 	uint64_t tick, hits, misses, stores, expirations, evictions, invalidations, refreshes,
-		backend_errors;
+		negative_hits, backend_errors, allocation_failures;
 	HANDLE mapping;
 	HANDLE mutex;
 	php_bacnet_win_cache_shared *shared;
@@ -93,6 +96,15 @@ static const char *php_bacnet_win_partition_name(php_bacnet_cache_partition part
 static bool php_bacnet_win_lock(php_bacnet_cache *cache);
 static void php_bacnet_win_unlock(php_bacnet_cache *cache);
 
+static void php_bacnet_win_warn(php_bacnet_cache *cache, const char *message) {
+	uint64_t now = php_bacnet_platform_wall_ms();
+	cache->backend_errors++;
+	if (!cache->last_log_ms || now - cache->last_log_ms >= (uint64_t)(cache->log_interval * 1000)) {
+		php_error_docref(NULL, E_WARNING, "BACnet cache: %s", message);
+		cache->last_log_ms = now;
+	}
+}
+
 static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *method, uint32_t argc,
 										 zval *args, zval *retval) {
 	if (!cache->backend_active || cache->in_callback)
@@ -109,7 +121,8 @@ static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *me
 	if (result == FAILURE || EG(exception)) {
 		if (EG(exception))
 			zend_clear_exception();
-		cache->backend_errors++;
+		php_bacnet_win_warn(cache,
+							"PHP-Backend ist fehlgeschlagen; Netzwerkzugriff wird fortgesetzt");
 		return false;
 	}
 	return true;
@@ -434,6 +447,8 @@ php_bacnet_cache *php_bacnet_cache_create(const char *iface, uint16_t port) {
 	cache->ttl[PHP_BACNET_CACHE_IP] = BACNET_G(cache_ip_ttl);
 	cache->ttl[PHP_BACNET_CACHE_NEGATIVE] = BACNET_G(cache_negative_read_ttl);
 	cache->negative_whois_ttl = BACNET_G(cache_negative_whois_ttl);
+	cache->negative_read_ttl = BACNET_G(cache_negative_read_ttl);
+	cache->log_interval = BACNET_G(cache_log_interval);
 	cache->max_entries[PHP_BACNET_CACHE_STATE] = BACNET_G(cache_state_max_entries);
 	cache->max_entries[PHP_BACNET_CACHE_OBJECT] = BACNET_G(cache_object_max_entries);
 	cache->max_entries[PHP_BACNET_CACHE_OBJECT_LIST] = BACNET_G(cache_object_list_max_entries);
@@ -512,6 +527,8 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 		*length = entry->length;
 		entry->touched = ++cache->tick;
 		cache->hits++;
+		if (partition == PHP_BACNET_CACHE_NEGATIVE)
+			cache->negative_hits++;
 		php_bacnet_win_unlock(cache);
 		return true;
 	}
@@ -559,6 +576,8 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 			php_bacnet_win_unlock(cache);
 		}
 		cache->hits++;
+		if (partition == PHP_BACNET_CACHE_NEGATIVE)
+			cache->negative_hits++;
 		return true;
 	}
 	cache->misses++;
@@ -569,9 +588,12 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 						  const char *key, const uint8_t *data, uint32_t length,
 						  double ttl_seconds) {
 	if (!php_bacnet_cache_partition_enabled(cache, partition) || !key || !data || !length ||
-		length > PHP_BACNET_WIN_CACHE_VALUE_MAX || strlen(key) >= PHP_BACNET_WIN_CACHE_KEY_MAX ||
 		ttl_seconds <= 0)
 		return;
+	if (length > PHP_BACNET_WIN_CACHE_VALUE_MAX || strlen(key) >= PHP_BACNET_WIN_CACHE_KEY_MAX) {
+		cache->allocation_failures++;
+		return;
+	}
 	char lmdb_key[512];
 	php_bacnet_win_key(cache, partition, key, lmdb_key, sizeof(lmdb_key));
 	if (!cache->shared || !php_bacnet_win_lock(cache))
@@ -767,6 +789,19 @@ bool php_bacnet_cache_set_options(php_bacnet_cache *cache, HashTable *options,
 		} else if (!strcmp(name, "coherence_interval_ms") && Z_TYPE_P(value) == IS_LONG &&
 				   Z_LVAL_P(value) >= 0) {
 			cache->coherence_interval_ms = (uint32_t)Z_LVAL_P(value);
+		} else if (!strcmp(name, "log_interval") &&
+				   (Z_TYPE_P(value) == IS_LONG || Z_TYPE_P(value) == IS_DOUBLE) &&
+				   zval_get_double(value) >= 0) {
+			cache->log_interval = zval_get_double(value);
+		} else if (!strcmp(name, "negative_whois_ttl") &&
+				   (Z_TYPE_P(value) == IS_LONG || Z_TYPE_P(value) == IS_DOUBLE) &&
+				   zval_get_double(value) >= 0) {
+			cache->negative_whois_ttl = zval_get_double(value);
+		} else if (!strcmp(name, "negative_read_ttl") &&
+				   (Z_TYPE_P(value) == IS_LONG || Z_TYPE_P(value) == IS_DOUBLE) &&
+				   zval_get_double(value) >= 0) {
+			cache->negative_read_ttl = zval_get_double(value);
+			cache->ttl[PHP_BACNET_CACHE_NEGATIVE] = cache->negative_read_ttl;
 		} else if (!strcmp(name, "l2_backend") && Z_TYPE_P(value) == IS_STRING) {
 			const char *backend = Z_STRVAL_P(value);
 			if (!strcmp(backend, "lmdb"))
@@ -860,6 +895,9 @@ void php_bacnet_cache_get_options(php_bacnet_cache *cache, zval *return_value) {
 	add_assoc_long(return_value, "l2_max_bytes", (zend_long)cache->l2_max_bytes);
 	add_assoc_long(return_value, "lmdb_map_size", (zend_long)cache->lmdb_map_size);
 	add_assoc_long(return_value, "coherence_interval_ms", cache->coherence_interval_ms);
+	add_assoc_double(return_value, "log_interval", cache->log_interval);
+	add_assoc_double(return_value, "negative_whois_ttl", cache->negative_whois_ttl);
+	add_assoc_double(return_value, "negative_read_ttl", cache->negative_read_ttl);
 	for (int partition = 0; partition < PHP_BACNET_CACHE_PARTITION_COUNT; partition++) {
 		char key[64];
 		snprintf(key, sizeof(key), "%s_enabled", php_bacnet_win_partition_name(partition));
@@ -883,21 +921,25 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 	add_assoc_long(return_value, "evictions", (zend_long)cache->evictions);
 	add_assoc_long(return_value, "invalidations", (zend_long)cache->invalidations);
 	add_assoc_long(return_value, "refreshes", (zend_long)cache->refreshes);
+	add_assoc_long(return_value, "negative_hits", (zend_long)cache->negative_hits);
+	add_assoc_long(return_value, "allocation_failures", (zend_long)cache->allocation_failures);
 	add_assoc_bool(return_value, "l1_available", cache->shared != NULL);
 	add_assoc_bool(return_value, "l2_available",
 				   cache->l2 == PHP_BACNET_WIN_L2_CALLBACK ? cache->backend_active
 				   : cache->l2 == PHP_BACNET_WIN_L2_LMDB   ? cache->env != NULL
 														   : true);
 	add_assoc_long(return_value, "backend_errors", (zend_long)cache->backend_errors);
-	if (include_entries) {
-		zend_long entries = 0;
-		if (cache->shared && php_bacnet_win_lock(cache)) {
-			for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
-				entries += cache->shared->entries[i].used;
-			php_bacnet_win_unlock(cache);
-		}
-		add_assoc_long(return_value, "l1_entries", entries);
+	zend_long entries = 0, bytes = 0;
+	if (cache->shared && php_bacnet_win_lock(cache)) {
+		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
+			if (cache->shared->entries[i].used) {
+				entries++;
+				bytes += cache->shared->entries[i].length;
+			}
+		php_bacnet_win_unlock(cache);
 	}
+	add_assoc_long(return_value, "l1_entries", entries);
+	add_assoc_long(return_value, "l1_bytes", bytes);
 	if (cache->env) {
 		MDB_txn *txn = NULL;
 		MDB_stat stat;
@@ -910,9 +952,11 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 			mdb_txn_abort(txn);
 	} else
 		add_assoc_null(return_value, "l2_entries");
+	add_assoc_null(return_value, "l2_bytes");
 	if (reset)
 		cache->hits = cache->misses = cache->stores = cache->expirations = cache->evictions =
-			cache->invalidations = cache->refreshes = 0;
+			cache->invalidations = cache->refreshes = cache->negative_hits = cache->backend_errors =
+				cache->allocation_failures = 0;
 }
 
 bool php_bacnet_cache_set_backend(php_bacnet_cache *cache, zval *backend) {

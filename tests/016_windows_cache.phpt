@@ -31,11 +31,15 @@ $client->setCacheOptions([
     'state_ttl' => 2.5,
     'state_max_entries' => 3,
     'coherence_interval_ms' => 0,
+    'log_interval' => 0,
+    'negative_whois_ttl' => 4.5,
+    'negative_read_ttl' => 1.5,
 ]);
 $options = $client->getCacheOptions();
 var_dump($options['state_enabled'], $options['state_ttl']);
 var_dump($options['state_max_entries']);
 var_dump($options['coherence_interval_ms']);
+var_dump($options['log_interval'], $options['negative_whois_ttl'], $options['negative_read_ttl']);
 echo $options['l2_backend'], PHP_EOL;
 var_dump($client->getCacheStats()['l2_available']);
 $client->setCacheOptions(['l2_backend' => 'none']);
@@ -57,6 +61,9 @@ bool(true)
 float(2.5)
 int(3)
 int(0)
+float(0)
+float(4.5)
+float(1.5)
 lmdb
 bool(true)
 none
