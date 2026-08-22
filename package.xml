@@ -60,7 +60,7 @@
         <file name="pie.md"             role="doc"/>
       </dir>
       <dir name="assets">
-        <file name="php-bacnet-logo.jpg" role="doc"/>
+        <file name="php-bacnet-logo.png" role="doc"/>
       </dir>
       <dir name="examples">
         <file name="README.md"        role="doc"/>
