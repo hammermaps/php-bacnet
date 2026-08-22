@@ -8,9 +8,9 @@ werden nicht gecacht.
 
 ## Installation
 
-LMDB ist eine Build-Abhängigkeit. Unter Debian/Ubuntu wird `liblmdb-dev`
-benötigt. Das voreingestellte Verzeichnis `/var/cache/php-bacnet` muss vor dem
-Start angelegt und für den PHP-Prozess beschreibbar gemacht werden. Die
+LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte
+Verzeichnis `/var/cache/php-bacnet` muss vor dem Start angelegt und für den
+PHP-Prozess beschreibbar gemacht werden. Die
 Erweiterung legt es aus Sicherheitsgründen nicht selbst an. Ist es nicht
 verfügbar, bleibt L1 aktiv und eine aggregierte Warnung wird ausgegeben.
 
@@ -40,7 +40,7 @@ Deployments auf demselben Host sollte ein expliziter Namespace gesetzt werden.
 | `bacnet.cache_namespace` | leer | Automatisch `Interface:Port` |
 | `bacnet.cache_shm_name` | leer | Automatisch gehashter POSIX-Segmentname |
 | `bacnet.cache_lmdb_path` | `/var/cache/php-bacnet` | Vorhandenes, beschreibbares LMDB-Verzeichnis |
-| `bacnet.cache_l1_max_bytes` | `16777216` | Logische L1-Speichergrenze |
+| `bacnet.cache_l1_max_bytes` | `16777216` | Durchgesetzte L1-Speichergrenze |
 | `bacnet.cache_l2_max_bytes` | `16777216` | Logische L2-Speichergrenze |
 | `bacnet.cache_lmdb_map_size` | `67108864` | LMDB-Map-Größe |
 | `bacnet.cache_coherence_interval_ms` | `1000` | Maximales Prüfintervall externer Generationen |

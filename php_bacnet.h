@@ -4,7 +4,7 @@
 extern zend_module_entry bacnet_module_entry;
 #define phpext_bacnet_ptr &bacnet_module_entry
 
-#define PHP_BACNET_VERSION "0.1.3"
+#define PHP_BACNET_VERSION "0.1.4"
 #define PHP_BACNET_EXTNAME "bacnet"
 
 /* Shared implementation limits and protocol defaults. */

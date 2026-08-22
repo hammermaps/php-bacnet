@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v0.1.x]
   pull_request:
 
 jobs:
@@ -30,7 +30,6 @@ jobs:
             build-essential \
             cmake \
             clang-format \
-            liblmdb-dev \
             valgrind
 
       - name: phpize

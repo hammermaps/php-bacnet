@@ -2,6 +2,15 @@
 
 All notable changes to php-bacnet are documented here.
 
+## [0.1.4] — 2026-08-22
+
+### Changed
+
+- LMDB wird aus der fest gepinnten Projektquelle mitgebaut; `liblmdb-dev` ist
+  für Linux-Builds nicht mehr erforderlich.
+- Die L1-Speichergrenze `l1_max_bytes` wird durchgesetzt. Bei Platzmangel
+  werden die ältesten Cache-Einträge verdrängt.
+
 ## [0.1.3] — 2026-08-22
 
 ### Added

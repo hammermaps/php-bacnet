@@ -37,12 +37,12 @@ für die gewählte PHP-Installation.
 ## Release-Artefakt
 
 Der Release-Workflow erzeugt `php_bacnet-<version>-src.tgz`. Es enthält den
-rekursiv ausgecheckten `bacnet-stack`, denn ein normales GitHub-Quellarchiv
+rekursiv ausgecheckten `bacnet-stack` und LMDB, denn ein normales GitHub-Quellarchiv
 enthält Submodule nicht vollständig. PIE lädt dieses Artefakt vor dem Build.
 
 Lokal lässt sich das Paket prüfen:
 
 ```bash
-PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.1.3
-tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.1.3-src.tgz | head
+PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.1.4
+tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.1.4-src.tgz | head
 ```

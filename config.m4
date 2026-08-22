@@ -16,9 +16,13 @@ if test "$PHP_BACNET" != "no"; then
   BACNET_DIR="$srcdir/deps/bacnet-stack"
   BACNET_BUILD_DIR="$srcdir/deps/bacnet-stack/build"
   BACNET_SRC_DIR="$BACNET_DIR/src"
+  LMDB_SRC_DIR="$srcdir/deps/lmdb/libraries/liblmdb"
 
   if test ! -f "$BACNET_DIR/CMakeLists.txt"; then
     AC_MSG_ERROR([bacnet-stack source not found. Install from a PIE source package or initialize submodules.])
+  fi
+  if test ! -f "$LMDB_SRC_DIR/mdb.c"; then
+    AC_MSG_ERROR([bundled LMDB source not found. Initialize submodules.])
   fi
 
   if test ! -f "$BACNET_BUILD_DIR/libbacnet-stack.a"; then
@@ -39,13 +43,8 @@ if test "$PHP_BACNET" != "no"; then
   fi
 
   PHP_ADD_INCLUDE($BACNET_SRC_DIR)
+  PHP_ADD_INCLUDE($LMDB_SRC_DIR)
   PHP_ADD_LIBRARY_WITH_PATH(bacnet-stack, $BACNET_BUILD_DIR, BACNET_SHARED_LIBADD)
-  AC_CHECK_HEADER([lmdb.h], [], [AC_MSG_ERROR([lmdb.h not found; install liblmdb-dev])])
-  PHP_CHECK_LIBRARY([lmdb], [mdb_env_create], [
-    PHP_ADD_LIBRARY([lmdb],, [BACNET_SHARED_LIBADD])
-  ], [
-    AC_MSG_ERROR([liblmdb not found; install liblmdb-dev])
-  ])
   PHP_ADD_LIBRARY([pthread],, [BACNET_SHARED_LIBADD])
   PHP_SUBST(BACNET_SHARED_LIBADD)
 
@@ -57,7 +56,9 @@ if test "$PHP_BACNET" != "no"; then
      src/bacnet_types.c
      src/bacnet_helpers.c
      src/bacnet_cache.c
-     src/bacnet_security.c],
+     src/bacnet_security.c
+     deps/lmdb/libraries/liblmdb/mdb.c
+     deps/lmdb/libraries/liblmdb/midl.c],
     $ext_shared,
     ,
     $EXTRA_CFLAGS)

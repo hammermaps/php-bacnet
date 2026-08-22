@@ -394,15 +394,20 @@ static void php_bacnet_shm_put(php_bacnet_cache *c, int p, const char *full, con
 		return;
 	}
 	cache_slot *target = NULL, *lru = NULL, *global_lru = NULL;
+	bool found = false;
 	uint64_t oldest = UINT64_MAX, global_oldest = UINT64_MAX;
 	uint32_t count = 0;
+	size_t used_bytes = 0;
 	for (uint32_t i = 0; i < PHP_BACNET_CACHE_SHM_SLOTS; i++) {
 		cache_slot *s = &c->shm->slots[i];
-		if (s->used && s->partition == p)
-			count++;
+		if (s->used) {
+			used_bytes += s->value_length;
+			if (s->partition == p)
+				count++;
+		}
 		if (s->used && !strcmp(s->key, full)) {
 			target = s;
-			break;
+			found = true;
 		}
 		if (!s->used && !target)
 			target = s;
@@ -415,10 +420,32 @@ static void php_bacnet_shm_put(php_bacnet_cache *c, int p, const char *full, con
 			global_lru = s;
 		}
 	}
-	if ((!target || (target->used && strcmp(target->key, full))) || count >= c->max_entries[p]) {
+	if (!found && (!target || count >= c->max_entries[p])) {
 		target = lru ? lru : global_lru;
 		if (target)
 			c->stats.evictions++;
+	}
+	if (!target || length > c->l1_max_bytes) {
+		c->stats.allocation_failures++;
+		php_bacnet_unlock_shm(c->shm);
+		return;
+	}
+	size_t projected_bytes = used_bytes - (target->used ? target->value_length : 0) + length;
+	while (projected_bytes > c->l1_max_bytes) {
+		cache_slot *victim = NULL;
+		for (uint32_t i = 0; i < PHP_BACNET_CACHE_SHM_SLOTS; i++) {
+			cache_slot *s = &c->shm->slots[i];
+			if (s != target && s->used && (!victim || s->touched < victim->touched))
+				victim = s;
+		}
+		if (!victim) {
+			c->stats.allocation_failures++;
+			php_bacnet_unlock_shm(c->shm);
+			return;
+		}
+		projected_bytes -= victim->value_length;
+		victim->used = 0;
+		c->stats.evictions++;
 	}
 	if (target) {
 		memset(target, 0, sizeof(*target));
