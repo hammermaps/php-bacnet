@@ -11,7 +11,7 @@ if (!extension_loaded('bacnet')) {
 ?>
 --FILE--
 <?php
-$interface = getenv('BACNET_TEST_INTERFACE') ?: 'lo';
+$interface = getenv('BACNET_TEST_INTERFACE') ?: (PHP_OS_FAMILY === 'Windows' ? '127.0.0.1' : 'lo');
 $port = (int) (getenv('BACNET_TEST_PORT') ?: 47819);
 
 $first = new Bacnet\Client($interface, $port, 10);
