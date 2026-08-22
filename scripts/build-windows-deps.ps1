@@ -24,9 +24,15 @@ cmake --build $buildRoot --config Release --parallel
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 New-Item -ItemType Directory -Force -Path $lmdbBuildRoot | Out-Null
-& cl.exe /nologo /O2 /MD /c (Join-Path $lmdbRoot 'mdb.c') /Fo(Join-Path $lmdbBuildRoot 'mdb.obj')
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& cl.exe /nologo /O2 /MD /c (Join-Path $lmdbRoot 'midl.c') /Fo(Join-Path $lmdbBuildRoot 'midl.obj')
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& lib.exe /nologo /OUT:(Join-Path $lmdbBuildRoot 'lmdb.lib') (Join-Path $lmdbBuildRoot 'mdb.obj') (Join-Path $lmdbBuildRoot 'midl.obj')
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'
+$vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $vsPath) { throw 'Visual C++ build tools missing.' }
+$vcvars = Join-Path $vsPath 'VC\\Auxiliary\\Build\\vcvars64.bat'
+$mdb = Join-Path $lmdbRoot 'mdb.c'
+$midl = Join-Path $lmdbRoot 'midl.c'
+$mdbObj = Join-Path $lmdbBuildRoot 'mdb.obj'
+$midlObj = Join-Path $lmdbBuildRoot 'midl.obj'
+$lmdbLib = Join-Path $lmdbBuildRoot 'lmdb.lib'
+$command = "`"$vcvars`" && cl.exe /nologo /O2 /MD /c `"$mdb`" /Fo`"$mdbObj`" && cl.exe /nologo /O2 /MD /c `"$midl`" /Fo`"$midlObj`" && lib.exe /nologo /OUT:`"$lmdbLib`" `"$mdbObj`" `"$midlObj`""
+cmd.exe /d /s /c $command
 exit $LASTEXITCODE
