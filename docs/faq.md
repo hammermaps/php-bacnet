@@ -14,7 +14,7 @@ Verwende `refresh: true` bei `whoIs()` oder als letzten Parameter von
 
 ## Welche PHP-Versionen werden unterstützt?
 
-Die Erweiterung benötigt PHP 8.4 oder 8.5 als NTS-Build unter Linux. Sie muss mit
+Die Erweiterung benötigt PHP 8.4 oder 8.5 als NTS- oder ZTS-Build unter Linux. Sie muss mit
 derselben PHP-API gebaut werden wie die Runtime, die sie lädt. Prüfe das mit
 `php -v` und `php --ri bacnet`.
 

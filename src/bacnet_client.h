@@ -37,9 +37,9 @@ typedef void (*php_bacnet_unsolicited_handler)(void *context, const BACNET_ADDRE
  * Internal client state. One per Bacnet\Client object.
  *
  * IMPORTANT: The socket fd opened by bip_init() is process-global in
- * bacnet-stack. Only one php_bacnet_client may exist per PHP process.
- * bip_cleanup() is called only in free_obj — never between requests —
- * so the fd stays persistent for future COV subscription support (v0.2.0).
+ * bacnet-stack. The transport manager serializes access and retains the
+ * socket until the last Client or Server object releases it. A PHP request
+ * thread may own one client; ZTS threads share the transport safely.
  */
 typedef struct {
 	int socket_fd; /* fd from bip_get_socket() — kept open until destroy */

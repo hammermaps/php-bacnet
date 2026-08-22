@@ -7,6 +7,7 @@
 #include "ext/standard/info.h" /* php_info_print_table_* */
 #include "php_bacnet.h"
 #include "src/bacnet_classes.h"
+#include "src/bacnet_transport.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(bacnet)
 
@@ -155,6 +156,8 @@ static void php_bacnet_init_globals(zend_bacnet_globals *bacnet_globals) {
 /* MINIT */
 PHP_MINIT_FUNCTION(bacnet) {
 	ZEND_INIT_MODULE_GLOBALS(bacnet, php_bacnet_init_globals, NULL);
+	if (!php_bacnet_transport_startup())
+		return FAILURE;
 	REGISTER_INI_ENTRIES();
 	php_bacnet_register_classes();
 	return SUCCESS;
@@ -162,6 +165,7 @@ PHP_MINIT_FUNCTION(bacnet) {
 
 /* MSHUTDOWN */
 PHP_MSHUTDOWN_FUNCTION(bacnet) {
+	php_bacnet_transport_shutdown();
 	UNREGISTER_INI_ENTRIES();
 	return SUCCESS;
 }

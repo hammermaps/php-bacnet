@@ -52,6 +52,7 @@ if test "$PHP_BACNET" != "no"; then
   PHP_NEW_EXTENSION(bacnet,
     [bacnet.c
      src/bacnet_client.c
+     src/bacnet_transport.c
      src/bacnet_classes.c
      src/bacnet_types.c
      src/bacnet_helpers.c

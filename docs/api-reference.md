@@ -1,6 +1,6 @@
 # php-bacnet — API-Referenz
 
-> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.2.0
+> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.3.1
 > Stil: [php.net](https://www.php.net/manual/de/) Referenzhandbuch
 
 ---
@@ -62,11 +62,15 @@ und stellt eine typsichere, objektorientierte API im Namensraum `Bacnet\` bereit
 | WeeklySchedule | WEEKLY_SCHEDULE lesen (Dekodierung) |
 | TrendLog | LOG_BUFFER als `TrendLogRecord[]` lesen |
 
-**Einschränkungen in v0.2.0:**
+**Transport-Semantik in v0.3.1:**
 
 - Genau ein `Client` oder `Server` pro PHP-Prozess (prozess-globaler UDP-Socket).
 - `whoIs()` sammelt maximal 64 Geräte pro Aufruf.
-- Nur NTS (Non-Thread-Safe) — kein ZTS/FPM-Thread-Mode.
+- NTS und ZTS werden unterstützt; das Modul muss zum Thread-Safety-Modus von
+  PHP passen.
+- Der BACnet/IP-Transport ist pro Prozess gemeinsam und serialisiert parallele
+  Netzwerkzugriffe. COV-Callbacks und Server-Callbacks laufen nur über den
+  jeweiligen Aufruf von `poll()` im besitzenden PHP-Thread.
 - `writeWeeklySchedule()` ist noch nicht implementiert.
 
 ---
@@ -752,8 +756,7 @@ public function readWeeklySchedule(): Bacnet\WeeklySchedule
 ```
 
 Liest `WEEKLY_SCHEDULE` von einem `SCHEDULE`-Objekt.
-In v0.1.0 gibt die Methode ein leeres `WeeklySchedule`-Objekt zurück
-(vollständige Sequenz-Dekodierung ist für v0.2.0 geplant).
+Die vollständige Sequenz-Dekodierung ist für eine spätere Version geplant.
 
 **Rückgabewert:** `Bacnet\WeeklySchedule`
 

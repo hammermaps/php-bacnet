@@ -1,7 +1,7 @@
 # Installation mit PIE
 
 `php-bacnet` wird für Linux und macOS als PIE-Quellpaket bereitgestellt. Für
-Windows stehen vorkompilierte NTS-DLL-Artefakte aus den GitHub-Releases bereit.
+Windows stehen vorkompilierte NTS- und ZTS-DLL-Artefakte aus den GitHub-Releases bereit.
 
 ## Voraussetzungen
 
@@ -33,8 +33,8 @@ pie install hammermaps/php-bacnet \
 Die Extension heißt `bacnet`; PIE aktiviert sie nach erfolgreicher Installation
 für die gewählte PHP-Installation.
 
-Unter Windows installiert PIE ausschließlich die passende vorkompilierte
-NTS-DLL. ZTS wird nicht unterstützt.
+Unter Windows installiert PIE die DLL, deren PHP-Version, Architektur und
+Thread-Safety-Modus (NTS oder ZTS) zur gewählten PHP-Installation passen.
 
 ## Release-Artefakt
 
@@ -45,6 +45,6 @@ enthält Submodule nicht vollständig. PIE lädt dieses Artefakt vor dem Build.
 Lokal lässt sich das Paket prüfen:
 
 ```bash
-PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.2.0
-tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.2.0-src.tgz | head
+PIE_DIST_DIR=/tmp/php-bacnet-dist ./scripts/package-pie-source.sh 0.3.1
+tar -tzf /tmp/php-bacnet-dist/php_bacnet-0.3.1-src.tgz | head
 ```

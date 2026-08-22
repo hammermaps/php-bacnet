@@ -4,7 +4,7 @@
 extern zend_module_entry bacnet_module_entry;
 #define phpext_bacnet_ptr &bacnet_module_entry
 
-#define PHP_BACNET_VERSION "0.2.0"
+#define PHP_BACNET_VERSION "0.3.1"
 #define PHP_BACNET_EXTNAME "bacnet"
 
 /* Shared implementation limits and protocol defaults. */
@@ -42,7 +42,7 @@ extern zend_class_entry *bacnet_ce_timeout_exception;
 extern zend_class_entry *bacnet_ce_device_exception;
 extern zend_class_entry *bacnet_ce_cache_backend;
 
-/* Extension globals (NTS only — no ZTS) */
+/* Thread-local extension globals, provided by TSRM in ZTS builds. */
 typedef struct _zend_bacnet_globals {
 	zend_long default_port;
 	zend_long default_timeout_ms;
@@ -97,7 +97,8 @@ typedef struct _zend_bacnet_globals {
 	uint8_t next_invoke_id;
 	/*
 	 * Singleton guard: bacnet-stack's bip_init() binds a process-global UDP
-	 * socket. Only one Bacnet\Client may exist per PHP process at a time.
+	 * socket. Only one Bacnet\Client may exist per PHP request thread at a time.
+	 * The shared transport manager serializes access across ZTS threads.
 	 * Reset to 0 in RINIT so FPM workers can create a new Client per request.
 	 */
 	bool client_initialized;

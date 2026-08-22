@@ -6,9 +6,9 @@ als L1. Dadurch teilen sich PHP-FPM-Worker bzw. FastCGI-Prozesse desselben Hosts
 die Einträge. Das standardmäßige L2 ist LMDB. Der reine `Bacnet\Server` und
 seine Callbacks werden nicht gecacht.
 
-## Windows (NTS)
+## Windows (NTS und ZTS)
 
-Windows-NTS-Builds verwenden einen begrenzten L1-Cache (maximal 256 Einträge)
+Windows-Builds verwenden einen begrenzten L1-Cache (maximal 256 Einträge)
 in benanntem Shared Memory. Ein benannter Mutex schützt die Daten; damit
 teilen alle FastCGI-Prozesse desselben Windows-Hosts die Einträge. Das
 mitgelieferte LMDB stellt darüber ein persistentes L2 bereit. Das mit

@@ -1,6 +1,6 @@
-# php-bacnet v0.3.x — ZTS-Integrationszweig für Linux und Windows
+# php-bacnet v0.3.1 — Linux- und Windows-Edition mit ZTS
 
-[![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
+[![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS%20%2F%20ZTS-blue)](#anforderungen)
 [![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
@@ -9,11 +9,10 @@
 > MixedServer, COV-Subscriptions und den zweistufigen Shared-Memory-/LMDB-Cache
 > aus `v0.2.x`. PIE-Releases heißen `v0.3.Z`.
 >
-> **Aktueller Stand:** Der Branch ist vorbereitet, aber noch nicht veröffentlicht.
-> Die vorhandene Implementierung ist weiterhin NTS. ZTS-Builds,
-> TSRM-Synchronisation und eine ZTS-Testmatrix werden erst nach ihrer
-> vollständigen Implementierung als unterstützt ausgewiesen. Bis dahin dürfen
-> keine `v0.3.Z`-PIE-Releases erzeugt werden.
+> **Transport-Semantik:** Der BACnet/IP-Transport wird pro Prozess über einen
+> Mutex serialisiert. PHP-Modulzustand bleibt je ZTS-Thread isoliert; eingehende
+> Ereignisse werden als C-kopierte PDUs gepuffert und durch `poll()` im
+> aufrufenden Thread an PHP weitergegeben.
 
 <p align="center">
   <img src="assets/php-bacnet-logo.png" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
@@ -333,7 +332,7 @@ steht im [Sicherheitsleitfaden](./docs/server-security.md#standardwerte).
 
 ## Anforderungen
 
-- PHP **8.4** oder **8.5** — NTS-Build (Non-Thread-Safe), mit Dev-Headers (`php8.5-dev`)
+- PHP **8.4** oder **8.5** — NTS- oder ZTS-Build mit passenden Dev-Headers
 - Linux (GCC, Autotools)
 - `build-essential`, `cmake` ≥ 3.16
 - Netzwerkzugang auf UDP-Port 47808 (BACnet/IP)

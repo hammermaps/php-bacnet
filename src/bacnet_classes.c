@@ -33,6 +33,7 @@
 #include "bacnet_client.h"
 #include "bacnet_helpers.h"
 #include "bacnet_security.h"
+#include "bacnet_transport.h"
 #include "bacnet_cache.h"
 
 /* ── Class entry globals ─────────────────────────────────────────────── */
@@ -939,7 +940,12 @@ PHP_METHOD(Bacnet_Client, poll) {
 	uint8_t pdu[MAX_APDU + MAX_NPDU];
 	BACNET_ADDRESS source, dest, npdu_source;
 	BACNET_NPDU_DATA npdu;
-	uint16_t len = bip_receive(&source, pdu, sizeof(pdu), (unsigned)(timeout < 0 ? 0 : timeout));
+	uint16_t len = 0;
+	if (!php_bacnet_client_pop_pdu(client, &source, pdu, &len)) {
+		php_bacnet_transport_lock();
+		len = bip_receive(&source, pdu, sizeof(pdu), (unsigned)(timeout < 0 ? 0 : timeout));
+		php_bacnet_transport_unlock();
+	}
 	if (!len)
 		return;
 	int offset = bacnet_npdu_decode(pdu, len, &dest, &npdu_source, &npdu);
@@ -2793,10 +2799,12 @@ static bool php_bacnet_server_send_apdu(BACNET_ADDRESS *dest, const uint8_t *apd
 	if (!dest || !apdu) {
 		return false;
 	}
+	php_bacnet_transport_lock();
 
 	npdu_encode_npdu_data(&npdu_data, false, MESSAGE_PRIORITY_NORMAL);
 	npdu_len = npdu_encode_pdu(pdu, dest, NULL, &npdu_data);
 	if (npdu_len < 0 || (size_t)npdu_len + apdu_len > sizeof(pdu)) {
+		php_bacnet_transport_unlock();
 		return false;
 	}
 
@@ -2808,9 +2816,13 @@ static bool php_bacnet_server_send_apdu(BACNET_ADDRESS *dest, const uint8_t *apd
 		broadcast.port = PHP_BACNET_DEFAULT_PORT;
 		int mpdu_len = bvlc_encode_original_broadcast(mpdu, sizeof(mpdu), pdu,
 													  (uint16_t)(npdu_len + apdu_len));
-		return mpdu_len > 0 && bip_send_mpdu(&broadcast, mpdu, (uint16_t)mpdu_len) > 0;
+		bool sent = mpdu_len > 0 && bip_send_mpdu(&broadcast, mpdu, (uint16_t)mpdu_len) > 0;
+		php_bacnet_transport_unlock();
+		return sent;
 	}
-	return bip_send_pdu(dest, &npdu_data, pdu, (uint16_t)(npdu_len + apdu_len)) > 0;
+	bool sent = bip_send_pdu(dest, &npdu_data, pdu, (uint16_t)(npdu_len + apdu_len)) > 0;
+	php_bacnet_transport_unlock();
+	return sent;
 }
 
 static bool php_bacnet_server_send_iam(php_bacnet_server_obj *srv) {
@@ -3132,7 +3144,9 @@ PHP_METHOD(Bacnet_Server, poll) {
 	uint16_t pdu_len = 0;
 	bool from_queue = php_bacnet_client_pop_pdu(srv->client, &src, pdu, &pdu_len);
 	if (!from_queue) {
+		php_bacnet_transport_lock();
 		pdu_len = bip_receive(&src, pdu, (uint16_t)sizeof(pdu), (unsigned)timeout_ms_arg);
+		php_bacnet_transport_unlock();
 	}
 	if (pdu_len == 0)
 		return;

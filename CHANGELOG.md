@@ -2,6 +2,24 @@
 
 All notable changes to php-bacnet are documented here.
 
+## [0.3.1] — 2026-08-22
+
+### Added
+
+- ZTS-Builds für PHP 8.4 und 8.5 unter Linux und Windows. Die GitHub-Matrix
+  prüft jeweils NTS und ZTS.
+- Prozessweiter, mutex-geschützter BACnet/IP-Transport. Der eingebettete
+  `bacnet-stack` behält seinen globalen Socketzustand, während parallele
+  ZTS-Netzwerkzugriffe sicher serialisiert werden.
+- ZTS-PHPT für den Transport-Lifecycle sowie Installations-, PIE- und API-
+  Dokumentation für passende NTS-/ZTS-Binärmodule.
+
+### Changed
+
+- Nicht zu einem synchronen Request gehörende PDUs werden ausschließlich als
+  C-Daten gepuffert. COV- und Server-Callbacks laufen erst in `poll()` des
+  besitzenden PHP-Threads und niemals unter dem Transport-Lock.
+
 ## [0.2.0] — 2026-08-22
 
 ### Added

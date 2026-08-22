@@ -15,5 +15,5 @@ if (PHP_BACNET != "no") {
 
     ADD_FLAG("CFLAGS_BACNET", "/DBACDL_BIP /DBACNET_STACK_DEPRECATED_DISABLE /DBACNET_STACK_STATIC_DEFINE /I \"" + bacnet_root + "\\src\" /I \"" + bacnet_root + "\\ports\\win32\" /I \"" + lmdb_root + "\"");
     ADD_FLAG("LDFLAGS_BACNET", "/LIBPATH:\"" + bacnet_build + "\" /LIBPATH:\"" + lmdb_build + "\" bacnet-stack.lib lmdb.lib ws2_32.lib");
-    EXTENSION("bacnet", "bacnet.c src\\bacnet_client.c src\\bacnet_classes.c src\\bacnet_types.c src\\bacnet_helpers.c src\\bacnet_cache_win32.c src\\bacnet_security.c");
+    EXTENSION("bacnet", "bacnet.c src\\bacnet_client.c src\\bacnet_transport.c src\\bacnet_classes.c src\\bacnet_types.c src\\bacnet_helpers.c src\\bacnet_cache_win32.c src\\bacnet_security.c");
 }

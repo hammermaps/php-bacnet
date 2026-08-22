@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [v0.3.x]
   pull_request:
 
 jobs:
@@ -103,3 +103,40 @@ jobs:
             tests/006_write_property.phpt \
             tests/008_advanced_types.phpt \
             2>&1 | grep -E "ERROR SUMMARY|definitely lost|indirectly lost" || true
+
+  zts:
+    name: PHP ${{ matrix.php }} ZTS — Ubuntu
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: ZTS-Extension bauen und testen
+        run: |
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            "php:${{ matrix.php }}-zts-bookworm" \
+            bash -lc '
+              set -eux
+              apt-get update -q
+              apt-get install -y --no-install-recommends \
+                autoconf automake build-essential cmake clang-format libtool pkg-config
+              php -i | grep -F "Thread Safety => enabled"
+              ./scripts/check-coding-standards.sh
+              phpize
+              ./configure --with-bacnet
+              make EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter" -j"$(nproc)"
+              php -n -d extension=modules/bacnet.so -m | grep -i "^bacnet$"
+              mkdir -p /tmp/php-bacnet-lmdb
+              REPORT_EXIT_STATUS=1 BACNET_TEST_INTERFACE=lo BACNET_TEST_LOCAL_IP=127.0.0.1 BACNET_TEST_PORT=47819 \
+                php -n -d extension=modules/bacnet.so \
+                -d bacnet.cache_lmdb_path=/tmp/php-bacnet-lmdb \
+                run-tests.php --show-diff tests/
+            '

@@ -28,6 +28,7 @@
 #include "bacnet_client.h"
 #include "bacnet_cache.h"
 #include "bacnet_platform.h"
+#include "bacnet_transport.h"
 
 /* Milliseconds since epoch, monotonic */
 static uint64_t php_bacnet_ms_now(void) {
@@ -51,14 +52,6 @@ static int php_bacnet_send_standard_broadcast(const uint8_t *npdu, uint16_t npdu
 	return bip_send_mpdu(&destination, mpdu, (uint16_t)mpdu_len);
 }
 
-static bool php_bacnet_dispatch_unsolicited(php_bacnet_client *client, const BACNET_ADDRESS *source,
-											uint8_t *pdu, uint16_t pdu_len) {
-	if (!client->unsolicited_handler)
-		return true;
-	client->unsolicited_handler(client->unsolicited_context, source, pdu, pdu_len);
-	return EG(exception) == NULL;
-}
-
 php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, char **err_msg) {
 	/* Persistent allocation: client outlives a single PHP call frame */
 	php_bacnet_client *client = pemalloc(sizeof(php_bacnet_client), 1);
@@ -77,24 +70,19 @@ php_bacnet_client *php_bacnet_client_create(const char *iface, uint16_t port, ch
 	client->iface = real_iface ? pestrdup(real_iface, 1) : pestrdup("(auto)", 1);
 	client->port = port ? port : PHP_BACNET_DEFAULT_PORT;
 
-	bip_set_port(client->port);
-	char *bip_iface = real_iface ? estrdup(real_iface) : NULL;
-	if (!bip_init(bip_iface)) {
-		efree(bip_iface);
+	if (!php_bacnet_transport_acquire(real_iface, client->port, &client->socket_fd, err_msg)) {
 		if (err_msg) {
 			char buf[PHP_BACNET_ERROR_MESSAGE_LENGTH];
-			snprintf(buf, sizeof(buf), "bip_init failed on interface '%s' port %u", client->iface,
-					 (unsigned)client->port);
-			/* estrdup: temporary error string — caller frees with efree() */
+			snprintf(buf, sizeof(buf), "BACnet transport failed on interface '%s' port %u",
+					 client->iface, (unsigned)client->port);
+			if (*err_msg)
+				efree(*err_msg);
 			*err_msg = estrdup(buf);
 		}
 		pefree(client->iface, 1);
 		pefree(client, 1);
 		return NULL;
 	}
-	efree(bip_iface);
-
-	client->socket_fd = bip_get_socket();
 	ZVAL_UNDEF(&client->cov_handler_zv);
 	client->next_cov_process_id = 1;
 	client->initialized = true;
@@ -118,7 +106,7 @@ void php_bacnet_client_destroy(php_bacnet_client *client) {
 	}
 	client->cache = NULL;
 	if (client->initialized) {
-		bip_cleanup();
+		php_bacnet_transport_release();
 		client->initialized = false;
 	}
 	pefree(client->iface, 1);
@@ -166,6 +154,7 @@ int php_bacnet_broadcast_and_collect(php_bacnet_client *client, uint8_t *request
 									 uint32_t timeout_ms) {
 	if (!client || !client->initialized)
 		return 0;
+	php_bacnet_transport_lock();
 
 	/* Build broadcast BACNET_ADDRESS (mac_len=0 → BIP subnet broadcast) */
 	BACNET_ADDRESS dest;
@@ -184,8 +173,10 @@ int php_bacnet_broadcast_and_collect(php_bacnet_client *client, uint8_t *request
 	 */
 	uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
 	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, &dest, NULL, &npdu_data);
-	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf))
+	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf)) {
+		php_bacnet_transport_unlock();
 		return 0;
+	}
 	memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);
 	unsigned total_len = (unsigned)(npdu_hdrlen + request_apdu_len);
 
@@ -228,15 +219,13 @@ int php_bacnet_broadcast_and_collect(php_bacnet_client *client, uint8_t *request
 
 		/* Unconfirmed service request? */
 		if ((apdu[0] & 0xF0) != PDU_TYPE_UNCONFIRMED_SERVICE_REQUEST) {
-			if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-				return -1;
+			(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 			continue;
 		}
 
 		/* I-Am? */
 		if (apdu[1] != SERVICE_UNCONFIRMED_I_AM) {
-			if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-				return -1;
+			(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 			continue;
 		}
 
@@ -272,6 +261,7 @@ int php_bacnet_broadcast_and_collect(php_bacnet_client *client, uint8_t *request
 		count++;
 	}
 
+	php_bacnet_transport_unlock();
 	return count;
 }
 
@@ -284,6 +274,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 							 uint8_t *out_apdu, uint16_t *out_apdu_len, uint32_t timeout_ms) {
 	if (!client || !client->initialized)
 		return -1;
+	php_bacnet_transport_lock();
 
 	BACNET_NPDU_DATA npdu_data;
 	npdu_encode_npdu_data(&npdu_data, true, MESSAGE_PRIORITY_NORMAL);
@@ -291,8 +282,10 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 	/* Encode NPDU before APDU — bvlc_send_pdu ignores npdu_data */
 	uint8_t pdu_buf[MAX_APDU + MAX_NPDU];
 	int npdu_hdrlen = npdu_encode_pdu(pdu_buf, dest, NULL, &npdu_data);
-	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf))
+	if (npdu_hdrlen < 0 || (size_t)npdu_hdrlen + request_apdu_len > sizeof(pdu_buf)) {
+		php_bacnet_transport_unlock();
 		return -1;
+	}
 	memcpy(pdu_buf + npdu_hdrlen, request_apdu, request_apdu_len);
 	unsigned total_len = (unsigned)(npdu_hdrlen + request_apdu_len);
 
@@ -326,8 +319,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 		uint8_t *apdu = pdu + npdu_len;
 		uint16_t apdu_len = pdu_len - (uint16_t)npdu_len;
 		if (apdu_len < 3) {
-			if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-				return -2;
+			(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 			continue;
 		}
 
@@ -336,8 +328,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 		/* Simple-ACK (WriteProperty success): byte[0]=0x20, byte[1]=invoke_id */
 		if (pdu_type == PDU_TYPE_SIMPLE_ACK) {
 			if (apdu[1] != expected_invoke_id) {
-				if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-					return -2;
+				(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 				continue;
 			}
 			uint16_t copy_len = apdu_len;
@@ -345,14 +336,14 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 				copy_len = MAX_APDU;
 			memcpy(out_apdu, apdu, copy_len);
 			*out_apdu_len = copy_len;
+			php_bacnet_transport_unlock();
 			return 0;
 		}
 
 		/* Complex-ACK: byte[0]=type|seg, byte[1]=invoke_id */
 		if (pdu_type == PDU_TYPE_COMPLEX_ACK) {
 			if (apdu[1] != expected_invoke_id) {
-				if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-					return -2;
+				(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 				continue;
 			}
 			uint16_t copy_len = apdu_len;
@@ -360,6 +351,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 				copy_len = MAX_APDU;
 			memcpy(out_apdu, apdu, copy_len);
 			*out_apdu_len = copy_len;
+			php_bacnet_transport_unlock();
 			return 0;
 		}
 
@@ -367,8 +359,7 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 		if (pdu_type == PDU_TYPE_ERROR || pdu_type == PDU_TYPE_REJECT ||
 			pdu_type == PDU_TYPE_ABORT) {
 			if (apdu[1] != expected_invoke_id) {
-				if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-					return -2;
+				(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 				continue;
 			}
 			uint16_t copy_len = apdu_len;
@@ -377,13 +368,14 @@ int php_bacnet_send_and_wait(php_bacnet_client *client, BACNET_ADDRESS *dest, ui
 			memcpy(out_apdu, apdu, copy_len);
 			*out_apdu_len = copy_len;
 			/* Return the raw PDU type so the PHP layer can throw the right exception */
+			php_bacnet_transport_unlock();
 			return (int)pdu_type;
 		}
 
-		if (!php_bacnet_dispatch_unsolicited(client, &src, pdu, pdu_len))
-			return -2;
+		(void)php_bacnet_client_queue_pdu(client, &src, pdu, pdu_len);
 	}
 
+	php_bacnet_transport_unlock();
 	return -1; /* timeout */
 }
 

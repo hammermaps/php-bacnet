@@ -78,12 +78,13 @@ den Testprozess beschreibbar sein, zum Beispiel:
 install -d -m 0700 /tmp/php-bacnet-lmdb-test
 ```
 
-> **Wichtig:** Nur **NTS** (Non-Thread-Safe) wird unterstützt. Prüfen:
+> **Wichtig:** NTS und ZTS werden unterstützt, die Erweiterung muss aber exakt
+> zum Thread-Safety-Modus der Ziel-PHP passen. Prüfen:
 > ```bash
 > php8.5 -i | grep "Thread Safety"
-> # → Thread Safety => disabled
+> # → Thread Safety => disabled (NTS) oder enabled (ZTS)
 > ```
-> ZTS-Builds (`Thread Safety => enabled`) sind nicht kompatibel.
+> Ein NTS-Modul kann nicht in ZTS-PHP geladen werden und umgekehrt.
 
 ### Netzwerk
 
@@ -258,8 +259,10 @@ sudo journalctl -u php8.5-fpm -n 50 | grep -i bacnet
 ### 5.3 Apache mod_php
 
 > **Empfehlung:** mod_php läuft als Apache-Modul im Prefork-MPM. Jeder Kind-Prozess
-> kann einen `Bacnet\Client` halten. Der Prefork-MPM ist kompatibel; Worker-MPM (ZTS) ist
-> **nicht** unterstützt.
+> kann einen `Bacnet\Client` halten. In ZTS-Laufzeiten wird der gemeinsame
+> BACnet/IP-Socket pro Prozess serialisiert; parallele Netzwerkaufrufe warten
+> daher aufeinander. PHP-Callbacks werden ausschließlich durch `poll()` im
+> aufrufenden Thread ausgeführt.
 
 **Schritt 1: Bibliothek installieren**
 ```bash
@@ -459,7 +462,7 @@ echo 'Klassen: ', implode(', ', \$info->getClassNames()), PHP_EOL;
 Erwartete Ausgabe:
 ```
 Extension geladen: JA
-Version: 0.2.0
+Version: 0.3.1
 Klassen: Bacnet\Client, Bacnet\Device, Bacnet\ObjectRef, Bacnet\Server, ...
 ```
 
