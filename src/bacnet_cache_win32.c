@@ -46,6 +46,12 @@ typedef struct {
 	uint64_t checksum;
 } php_bacnet_win_lmdb_value;
 
+typedef enum {
+	PHP_BACNET_WIN_L2_NONE,
+	PHP_BACNET_WIN_L2_LMDB,
+	PHP_BACNET_WIN_L2_CALLBACK
+} php_bacnet_win_l2;
+
 struct php_bacnet_cache {
 	bool enabled;
 	bool part_enabled[PHP_BACNET_CACHE_PARTITION_COUNT];
@@ -58,8 +64,12 @@ struct php_bacnet_cache {
 	size_t l1_max_bytes;
 	size_t l2_max_bytes;
 	size_t lmdb_map_size;
-	bool l2_enabled;
-	uint64_t tick, hits, misses, stores, expirations, evictions, invalidations, refreshes;
+	php_bacnet_win_l2 l2;
+	zval backend;
+	bool backend_active;
+	bool in_callback;
+	uint64_t tick, hits, misses, stores, expirations, evictions, invalidations, refreshes,
+		backend_errors;
 	HANDLE mapping;
 	HANDLE mutex;
 	php_bacnet_win_cache_shared *shared;
@@ -74,6 +84,28 @@ static uint64_t php_bacnet_win_hash_bytes(const uint8_t *data, size_t length) {
 		hash *= 1099511628211ULL;
 	}
 	return hash;
+}
+
+static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *method, uint32_t argc,
+										 zval *args, zval *retval) {
+	if (!cache->backend_active || cache->in_callback)
+		return false;
+	zval callable;
+	array_init_size(&callable, 2);
+	Z_TRY_ADDREF(cache->backend);
+	add_next_index_zval(&callable, &cache->backend);
+	add_next_index_string(&callable, method);
+	cache->in_callback = true;
+	int result = call_user_function(EG(function_table), NULL, &callable, retval, argc, args);
+	cache->in_callback = false;
+	zval_ptr_dtor(&callable);
+	if (result == FAILURE || EG(exception)) {
+		if (EG(exception))
+			zend_clear_exception();
+		cache->backend_errors++;
+		return false;
+	}
+	return true;
 }
 
 static void php_bacnet_win_lmdb_prefix(php_bacnet_cache *cache,
@@ -360,17 +392,21 @@ php_bacnet_cache *php_bacnet_cache_create(const char *iface, uint16_t port) {
 		snprintf(cache->namespace_name, sizeof(cache->namespace_name), "%s:%u",
 				 iface ? iface : "auto", port);
 	snprintf(cache->lmdb_path, sizeof(cache->lmdb_path), "%s", BACNET_G(cache_lmdb_path));
-	cache->l2_enabled =
-		!BACNET_G(cache_l2_backend) || strcmp(BACNET_G(cache_l2_backend), "none") != 0;
+	ZVAL_UNDEF(&cache->backend);
+	cache->l2 = !BACNET_G(cache_l2_backend) || strcmp(BACNET_G(cache_l2_backend), "none")
+					? PHP_BACNET_WIN_L2_LMDB
+					: PHP_BACNET_WIN_L2_NONE;
 	if (cache->enabled && !php_bacnet_win_open_shared(cache))
 		cache->enabled = false;
-	if (cache->enabled && cache->l2_enabled)
+	if (cache->enabled && cache->l2 == PHP_BACNET_WIN_L2_LMDB)
 		php_bacnet_win_open_lmdb(cache);
 	return cache;
 }
 
 void php_bacnet_cache_destroy(php_bacnet_cache *cache) {
 	if (cache) {
+		if (cache->backend_active)
+			zval_ptr_dtor(&cache->backend);
 		php_bacnet_win_close_shared(cache);
 		php_bacnet_win_close_lmdb(cache);
 		pefree(cache, 1);
@@ -420,7 +456,27 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 		return true;
 	}
 	php_bacnet_win_unlock(cache);
-	if (php_bacnet_win_lmdb_get(cache, lmdb_key, data, length)) {
+	bool l2_hit = false;
+	if (cache->l2 == PHP_BACNET_WIN_L2_LMDB)
+		l2_hit = php_bacnet_win_lmdb_get(cache, lmdb_key, data, length);
+	else if (cache->l2 == PHP_BACNET_WIN_L2_CALLBACK && cache->backend_active) {
+		zval args[3], retval;
+		ZVAL_STRING(&args[0], cache->namespace_name);
+		ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+		ZVAL_STRING(&args[2], key);
+		ZVAL_UNDEF(&retval);
+		if (php_bacnet_win_callback_call(cache, "get", 3, args, &retval) &&
+			Z_TYPE(retval) == IS_STRING && Z_STRLEN(retval) <= *length) {
+			memcpy(data, Z_STRVAL(retval), Z_STRLEN(retval));
+			*length = Z_STRLEN(retval);
+			l2_hit = true;
+		}
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&args[2]);
+		zval_ptr_dtor(&retval);
+	}
+	if (l2_hit) {
 		uint64_t expiry =
 			php_bacnet_platform_wall_ms() + (uint64_t)(cache->ttl[partition] * 1000.0);
 		if (cache->shared && php_bacnet_win_lock(cache)) {
@@ -487,8 +543,23 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	memcpy(target->value, data, length);
 	cache->stores++;
 	php_bacnet_win_unlock(cache);
-	php_bacnet_win_lmdb_put(cache, lmdb_key, data, length, expiry);
-	php_bacnet_win_lmdb_prune(cache, partition);
+	if (cache->l2 == PHP_BACNET_WIN_L2_LMDB) {
+		php_bacnet_win_lmdb_put(cache, lmdb_key, data, length, expiry);
+		php_bacnet_win_lmdb_prune(cache, partition);
+	} else if (cache->l2 == PHP_BACNET_WIN_L2_CALLBACK && cache->backend_active) {
+		zval args[6], retval;
+		ZVAL_STRING(&args[0], cache->namespace_name);
+		ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+		ZVAL_STRING(&args[2], key);
+		ZVAL_STRINGL(&args[3], (const char *)data, length);
+		ZVAL_LONG(&args[4], expiry);
+		ZVAL_LONG(&args[5], cache->max_entries[partition]);
+		ZVAL_UNDEF(&retval);
+		php_bacnet_win_callback_call(cache, "set", 6, args, &retval);
+		for (int i = 0; i < 6; i++)
+			zval_ptr_dtor(&args[i]);
+		zval_ptr_dtor(&retval);
+	}
 }
 
 void php_bacnet_cache_clear(php_bacnet_cache *cache, int partition) {
@@ -510,6 +581,19 @@ void php_bacnet_cache_clear(php_bacnet_cache *cache, int partition) {
 			php_bacnet_win_lmdb_prefix(cache, (php_bacnet_cache_partition)partition, prefix,
 									   sizeof(prefix));
 		php_bacnet_win_lmdb_delete_prefix(cache, prefix);
+	}
+	if (cache->l2 == PHP_BACNET_WIN_L2_CALLBACK && cache->backend_active) {
+		zval args[2], retval;
+		ZVAL_STRING(&args[0], cache->namespace_name);
+		if (partition < 0)
+			ZVAL_NULL(&args[1]);
+		else
+			ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+		ZVAL_UNDEF(&retval);
+		php_bacnet_win_callback_call(cache, "clear", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
 	}
 	cache->invalidations++;
 }
@@ -536,6 +620,18 @@ void php_bacnet_cache_invalidate(php_bacnet_cache *cache, php_bacnet_cache_parti
 		php_bacnet_win_lmdb_prefix(cache, partition, prefix, sizeof(prefix));
 		snprintf(prefix + strlen(prefix), sizeof(prefix) - strlen(prefix), "%s", scope);
 		php_bacnet_win_lmdb_delete_prefix(cache, prefix);
+	}
+	if (cache->l2 == PHP_BACNET_WIN_L2_CALLBACK && cache->backend_active) {
+		zval args[3], retval;
+		ZVAL_STRING(&args[0], cache->namespace_name);
+		ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+		ZVAL_STRING(&args[2], scope);
+		ZVAL_UNDEF(&retval);
+		php_bacnet_win_callback_call(cache, "invalidate", 3, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&args[2]);
+		zval_ptr_dtor(&retval);
 	}
 	cache->invalidations++;
 }
@@ -590,12 +686,17 @@ bool php_bacnet_cache_set_options(php_bacnet_cache *cache, HashTable *options,
 		} else if (!strcmp(name, "l2_backend") && Z_TYPE_P(value) == IS_STRING) {
 			const char *backend = Z_STRVAL_P(value);
 			if (!strcmp(backend, "lmdb"))
-				cache->l2_enabled = true;
+				cache->l2 = PHP_BACNET_WIN_L2_LMDB;
 			else if (!strcmp(backend, "none"))
-				cache->l2_enabled = false;
+				cache->l2 = PHP_BACNET_WIN_L2_NONE;
 			else {
 				*error = zend_strpprintf(0, "Ungültiges L2-Backend: %s", backend);
 				return false;
+			}
+			if (cache->backend_active) {
+				zval_ptr_dtor(&cache->backend);
+				ZVAL_UNDEF(&cache->backend);
+				cache->backend_active = false;
 			}
 			reopen_lmdb = true;
 		} else {
@@ -647,7 +748,7 @@ bool php_bacnet_cache_set_options(php_bacnet_cache *cache, HashTable *options,
 								  strlen("Windows Shared Memory konnte nicht geöffnet werden"), 0);
 		return false;
 	}
-	if (cache->enabled && cache->l2_enabled && !cache->env) {
+	if (cache->enabled && cache->l2 == PHP_BACNET_WIN_L2_LMDB && !cache->env) {
 		if (!php_bacnet_win_open_lmdb(cache)) {
 			*error = zend_string_init("Windows-LMDB konnte nicht geöffnet werden",
 									  strlen("Windows-LMDB konnte nicht geöffnet werden"), 0);
@@ -662,7 +763,10 @@ void php_bacnet_cache_get_options(php_bacnet_cache *cache, zval *return_value) {
 	array_init(return_value);
 	add_assoc_bool(return_value, "enabled", cache && cache->enabled);
 	add_assoc_string(return_value, "l1_backend", "shared_memory");
-	add_assoc_string(return_value, "l2_backend", cache && cache->l2_enabled ? "lmdb" : "none");
+	const char *l2 = !cache || cache->l2 == PHP_BACNET_WIN_L2_NONE ? "none"
+					 : cache->l2 == PHP_BACNET_WIN_L2_CALLBACK	   ? "callback"
+																   : "lmdb";
+	add_assoc_string(return_value, "l2_backend", (char *)l2);
 	add_assoc_string(return_value, "namespace", cache ? cache->namespace_name : "");
 	add_assoc_string(return_value, "shm_name", cache ? cache->shm_name : "");
 	add_assoc_string(return_value, "lmdb_path", cache ? cache->lmdb_path : "");
@@ -695,7 +799,11 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 	add_assoc_long(return_value, "invalidations", (zend_long)cache->invalidations);
 	add_assoc_long(return_value, "refreshes", (zend_long)cache->refreshes);
 	add_assoc_bool(return_value, "l1_available", cache->shared != NULL);
-	add_assoc_bool(return_value, "l2_available", cache->env != NULL);
+	add_assoc_bool(return_value, "l2_available",
+				   cache->l2 == PHP_BACNET_WIN_L2_CALLBACK ? cache->backend_active
+				   : cache->l2 == PHP_BACNET_WIN_L2_LMDB   ? cache->env != NULL
+														   : true);
+	add_assoc_long(return_value, "backend_errors", (zend_long)cache->backend_errors);
 	if (include_entries) {
 		zend_long entries = 0;
 		if (cache->shared && php_bacnet_win_lock(cache)) {
@@ -723,9 +831,14 @@ void php_bacnet_cache_get_stats(php_bacnet_cache *cache, bool include_entries, b
 }
 
 bool php_bacnet_cache_set_backend(php_bacnet_cache *cache, zval *backend) {
-	(void)cache;
-	(void)backend;
-	zend_throw_exception(
-		NULL, "Benutzerdefinierte Cache-Backends werden unter Windows noch nicht unterstützt", 0);
-	return false;
+	if (!cache)
+		return false;
+	if (cache->backend_active)
+		zval_ptr_dtor(&cache->backend);
+	ZVAL_COPY(&cache->backend, backend);
+	cache->backend_active = true;
+	cache->l2 = PHP_BACNET_WIN_L2_CALLBACK;
+	php_bacnet_win_close_lmdb(cache);
+	php_bacnet_cache_clear(cache, -1);
+	return true;
 }

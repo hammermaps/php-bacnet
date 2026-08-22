@@ -9,6 +9,14 @@ if (PHP_OS_FAMILY !== 'Windows') die('skip Windows only');
 bacnet.cache_enabled=0
 --FILE--
 <?php
+final class WindowsMemoryBackend implements Bacnet\CacheBackendInterface {
+    public function get(string $namespace, string $partition, string $key): ?string { return null; }
+    public function set(string $namespace, string $partition, string $key, string $payload, int $expiresAtMs, int $maxEntries): void {}
+    public function invalidate(string $namespace, string $partition, string $scope): void {}
+    public function clear(string $namespace, ?string $partition): void {}
+    public function getGeneration(string $namespace, string $partition): int { return 0; }
+    public function bumpGeneration(string $namespace, string $partition): int { return 1; }
+}
 $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'php-bacnet-windows-phpt-cache';
 @mkdir($path, 0700, true);
 ini_set('bacnet.cache_lmdb_path', $path);
@@ -32,6 +40,8 @@ $client->setCacheOptions(['l2_backend' => 'none']);
 echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
 $client->setCacheOptions(['l2_backend' => 'lmdb']);
 echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
+$client->setCacheBackend(new WindowsMemoryBackend());
+echo $client->getCacheOptions()['l2_backend'], PHP_EOL;
 unset($client);
 @unlink($path . DIRECTORY_SEPARATOR . 'data.mdb');
 @unlink($path . DIRECTORY_SEPARATOR . 'lock.mdb');
@@ -48,3 +58,4 @@ lmdb
 bool(true)
 none
 lmdb
+callback

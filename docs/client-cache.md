@@ -23,6 +23,9 @@ Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den
 Instanzcache und öffnet sie mit der neuen Konfiguration erneut.
 
+`setCacheBackend()` ist unter Windows NTS ebenfalls verfügbar und ersetzt LMDB
+instanzweise durch ein `Bacnet\CacheBackendInterface`.
+
 ## Installation
 
 LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte
