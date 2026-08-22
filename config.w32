@@ -13,6 +13,5 @@ if (PHP_BACNET != "no") {
 
     ADD_FLAG("CFLAGS_BACNET", "/DBACDL_BIP /DBACNET_STACK_DEPRECATED_DISABLE /I \"" + bacnet_root + "\\src\" /I \"" + bacnet_root + "\\ports\\win32\"");
     ADD_FLAG("LDFLAGS_BACNET", "/LIBPATH:\"" + bacnet_build + "\" bacnet-stack.lib ws2_32.lib");
-    ADD_SOURCES(configure_module_dirname, "bacnet.c src\\bacnet_client.c src\\bacnet_classes.c src\\bacnet_types.c src\\bacnet_helpers.c src\\bacnet_cache_win32.c src\\bacnet_security.c", "bacnet");
-    EXTENSION("bacnet", "shared");
+    EXTENSION("bacnet", "bacnet.c src\\bacnet_client.c src\\bacnet_classes.c src\\bacnet_types.c src\\bacnet_helpers.c src\\bacnet_cache_win32.c src\\bacnet_security.c", PHP_BACNET_SHARED);
 }
