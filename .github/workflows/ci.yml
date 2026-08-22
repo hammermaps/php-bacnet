@@ -33,24 +33,24 @@ jobs:
             liblmdb-dev \
             valgrind
 
-      - name: Cache bacnet-stack build
-        id: cache-bacnet
-        uses: actions/cache@v4
-        with:
-          path: deps/bacnet-stack/build
-          key: bacnet-stack-${{ hashFiles('deps/bacnet-stack/src/**') }}-${{ hashFiles('scripts/build-deps.sh') }}
-
-      - name: Build bacnet-stack static library
-        if: steps.cache-bacnet.outputs.cache-hit != 'true'
-        run: ./scripts/build-deps.sh
-
       - name: phpize
         run: phpize${{ matrix.php }}
+
+      - name: Validate PIE package metadata
+        run: composer validate --no-check-publish --strict
+
+      - name: Verify PIE source archive
+        env:
+          PIE_DIST_DIR: ${{ runner.temp }}/pie-dist
+        run: |
+          bash ./scripts/package-pie-source.sh 0.0.0
+          tar -tzf "$RUNNER_TEMP/pie-dist/php_bacnet-0.0.0-src.tgz" | \
+            grep -q 'deps/bacnet-stack/CMakeLists.txt'
 
       - name: Check C coding standards
         run: ./scripts/check-coding-standards.sh
 
-      - name: configure
+      - name: configure (builds bundled bacnet-stack)
         run: ./configure --with-bacnet --with-php-config=php-config${{ matrix.php }}
 
       - name: make (strict warnings)

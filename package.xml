@@ -26,10 +26,10 @@
     <active>yes</active>
   </lead>
 
-  <date>2026-08-21</date>
+  <date>2026-08-22</date>
   <version>
-    <release>0.1.2</release>
-    <api>0.1.2</api>
+    <release>0.1.3</release>
+    <api>0.1.3</api>
   </version>
   <stability>
     <release>alpha</release>
@@ -38,7 +38,8 @@
   <license uri="https://opensource.org/licenses/BSD-3-Clause">BSD-3-Clause</license>
 
   <notes>
-    COV-Subscriptions fuer entfernte BACnet-Properties und COV-Callbacks.
+    PIE-Quellpaket fuer Linux und macOS mit automatischem Build des
+    mitgelieferten bacnet-stack.
   </notes>
 
   <contents>
@@ -56,6 +57,7 @@
         <file name="mixed-mode.md"    role="doc"/>
         <file name="server-security.md" role="doc"/>
         <file name="client-cache.md" role="doc"/>
+        <file name="pie.md"             role="doc"/>
       </dir>
       <dir name="examples">
         <file name="README.md"        role="doc"/>
@@ -92,8 +94,11 @@
         <file name="010_mixed_server_lifecycle.phpt" role="test"/>
         <file name="011_server_security.phpt" role="test"/>
         <file name="012_server_security_ini.phpt" role="test"/>
+        <file name="014_read_property_multiple.phpt" role="test"/>
+        <file name="015_cov_api.phpt"             role="test"/>
         <file name="integration_security.php" role="test"/>
         <file name="integration_mixed.php"        role="test"/>
+        <file name="integration_cov.php"          role="test"/>
         <file name="README.md"                    role="doc"/>
       </dir>
       <dir name="stubs">
@@ -101,6 +106,7 @@
       </dir>
       <dir name="scripts">
         <file name="build-deps.sh" role="src"/>
+        <file name="package-pie-source.sh" role="src"/>
       </dir>
     </dir>
   </contents>

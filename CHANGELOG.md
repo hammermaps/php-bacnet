@@ -2,9 +2,14 @@
 
 All notable changes to php-bacnet are documented here.
 
-## Unreleased
+## [0.1.3] — 2026-08-22
 
 ### Added
+
+- PIE-Metadaten, Installationsdokumentation und ein GitHub-Release-Workflow
+  fuer Linux und macOS ergaenzt. Das PIE-Quellarchiv enthaelt den rekursiv
+  ausgecheckten `bacnet-stack` und wird waehrend `configure` automatisch mit
+  CMake als statische Bibliothek gebaut. Windows bleibt ausgeschlossen.
 
 - `Device::subscribeCOV()` meldet einzelne Properties entfernter Geräte für
   BACnet-COV an. `Client` und `MixedServer` verarbeiten eingehende

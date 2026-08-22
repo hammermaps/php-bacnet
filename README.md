@@ -11,6 +11,7 @@ typsichere, objektorientierte API im Namensraum `Bacnet\` bereit.
 
 > Vollständige API-Dokumentation: **[docs/api-reference.md](./docs/api-reference.md)**  
 > Build & Installation: **[docs/installation.md](./docs/installation.md)**
+> PIE: **[docs/pie.md](./docs/pie.md)**
 
 ---
 

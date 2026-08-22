@@ -459,7 +459,7 @@ echo 'Klassen: ', implode(', ', \$info->getClassNames()), PHP_EOL;
 Erwartete Ausgabe:
 ```
 Extension geladen: JA
-Version: 0.1.1
+Version: 0.1.3
 Klassen: Bacnet\Client, Bacnet\Device, Bacnet\ObjectRef, Bacnet\Server, ...
 ```
 
