@@ -17,7 +17,8 @@ final class MemoryBackend implements Bacnet\CacheBackendInterface {
     public function bumpGeneration(string $namespace, string $partition): int { return 1; }
 }
 
-$client = new Bacnet\Client('lo', 47930, 10);
+$loopback = PHP_OS_FAMILY === 'Windows' ? '127.0.0.1' : 'lo';
+$client = new Bacnet\Client($loopback, 47930, 10);
 $options = $client->getCacheOptions();
 echo $options['l1_backend'], PHP_EOL;
 echo $options['l2_backend'], PHP_EOL;
