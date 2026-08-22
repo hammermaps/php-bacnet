@@ -514,29 +514,29 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	char lmdb_key[512];
 	php_bacnet_win_key(cache, partition, key, lmdb_key, sizeof(lmdb_key));
 	uint64_t now = php_bacnet_platform_wall_ms();
-	if (!cache->shared || !php_bacnet_win_lock(cache))
-		return false;
-	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-		php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
-		if (!entry->used || entry->partition != partition || strcmp(entry->key, key))
-			continue;
-		if (entry->expires_at_ms <= now) {
-			entry->used = false;
-			cache->expirations++;
-			break;
+	if (cache->shared && php_bacnet_win_lock(cache)) {
+		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
+			php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+			if (!entry->used || entry->partition != partition || strcmp(entry->key, key))
+				continue;
+			if (entry->expires_at_ms <= now) {
+				entry->used = false;
+				cache->expirations++;
+				break;
+			}
+			if (*length < entry->length)
+				break;
+			memcpy(data, entry->value, entry->length);
+			*length = entry->length;
+			entry->touched = ++cache->tick;
+			cache->hits++;
+			if (partition == PHP_BACNET_CACHE_NEGATIVE)
+				cache->negative_hits++;
+			php_bacnet_win_unlock(cache);
+			return true;
 		}
-		if (*length < entry->length)
-			break;
-		memcpy(data, entry->value, entry->length);
-		*length = entry->length;
-		entry->touched = ++cache->tick;
-		cache->hits++;
-		if (partition == PHP_BACNET_CACHE_NEGATIVE)
-			cache->negative_hits++;
 		php_bacnet_win_unlock(cache);
-		return true;
 	}
-	php_bacnet_win_unlock(cache);
 	bool l2_hit = false;
 	if (cache->l2 == PHP_BACNET_WIN_L2_LMDB)
 		l2_hit = php_bacnet_win_lmdb_get(cache, lmdb_key, data, length);
@@ -560,15 +560,22 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	if (l2_hit) {
 		uint64_t expiry =
 			php_bacnet_platform_wall_ms() + (uint64_t)(cache->ttl[partition] * 1000.0);
-		if (cache->shared && php_bacnet_win_lock(cache)) {
+		if (cache->shared && *length <= cache->l1_max_bytes && php_bacnet_win_lock(cache)) {
 			php_bacnet_win_cache_entry *target = NULL;
+			size_t used_bytes = 0;
+			uint32_t partition_entries = 0;
 			for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-				if (!cache->shared->entries[i].used) {
-					target = &cache->shared->entries[i];
-					break;
+				php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+				if (entry->used) {
+					used_bytes += entry->length;
+					if (entry->partition == partition)
+						partition_entries++;
+				} else if (!target) {
+					target = entry;
 				}
 			}
-			if (target) {
+			if (target && partition_entries < cache->max_entries[partition] &&
+				used_bytes + *length <= cache->l1_max_bytes) {
 				target->used = true;
 				target->partition = partition;
 				target->length = *length;
@@ -601,7 +608,7 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	char lmdb_key[512];
 	php_bacnet_win_key(cache, partition, key, lmdb_key, sizeof(lmdb_key));
 	if (!cache->shared || !php_bacnet_win_lock(cache))
-		return;
+		goto write_l2;
 	php_bacnet_win_cache_entry *target = NULL;
 	php_bacnet_win_cache_entry *partition_lru = NULL;
 	php_bacnet_win_cache_entry *global_lru = NULL;

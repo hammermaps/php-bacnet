@@ -25,6 +25,9 @@ Partition begrenzt. Erreicht eine Partition ihre Grenze, ersetzt sie ihren
 `l1_max_bytes` wird ebenfalls durchgesetzt: Reicht der Platz nicht aus, weicht
 der global älteste L1-Eintrag. Einzelne Werte, die größer als die Grenze sind,
 überspringen L1 und bleiben für LMDB beziehungsweise ein PHP-L2 verfügbar.
+Auch wenn der Windows-L1 nicht geöffnet werden kann, bleiben LMDB und ein
+konfiguriertes PHP-L2 aktiv. L2-Treffer werden nur dann in L1 übernommen, wenn
+Partitions- und Speichergrenze dies erlauben.
 
 Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 `*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
