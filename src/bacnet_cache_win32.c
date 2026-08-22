@@ -64,10 +64,13 @@ struct php_bacnet_cache {
 	size_t l1_max_bytes;
 	size_t l2_max_bytes;
 	size_t lmdb_map_size;
+	uint32_t coherence_interval_ms;
 	php_bacnet_win_l2 l2;
 	zval backend;
 	bool backend_active;
 	bool in_callback;
+	uint64_t last_coherence_ms[PHP_BACNET_CACHE_PARTITION_COUNT];
+	uint64_t generations[PHP_BACNET_CACHE_PARTITION_COUNT];
 	uint64_t tick, hits, misses, stores, expirations, evictions, invalidations, refreshes,
 		backend_errors;
 	HANDLE mapping;
@@ -85,6 +88,8 @@ static uint64_t php_bacnet_win_hash_bytes(const uint8_t *data, size_t length) {
 	}
 	return hash;
 }
+
+static const char *php_bacnet_win_partition_name(php_bacnet_cache_partition partition);
 
 static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *method, uint32_t argc,
 										 zval *args, zval *retval) {
@@ -106,6 +111,57 @@ static bool php_bacnet_win_callback_call(php_bacnet_cache *cache, const char *me
 		return false;
 	}
 	return true;
+}
+
+static void php_bacnet_win_clear_l1_partition(php_bacnet_cache *cache, int partition) {
+	if (!cache->shared || !php_bacnet_win_lock(cache))
+		return;
+	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
+		if (cache->shared->entries[i].used &&
+			(partition < 0 || cache->shared->entries[i].partition == partition))
+			cache->shared->entries[i].used = false;
+	php_bacnet_win_unlock(cache);
+}
+
+static void php_bacnet_win_callback_bump_generation(php_bacnet_cache *cache,
+													php_bacnet_cache_partition partition) {
+	if (cache->l2 != PHP_BACNET_WIN_L2_CALLBACK || !cache->backend_active)
+		return;
+	zval args[2], retval;
+	ZVAL_STRING(&args[0], cache->namespace_name);
+	ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+	ZVAL_UNDEF(&retval);
+	if (php_bacnet_win_callback_call(cache, "bumpGeneration", 2, args, &retval) &&
+		Z_TYPE(retval) == IS_LONG)
+		cache->generations[partition] = Z_LVAL(retval);
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&retval);
+}
+
+static void php_bacnet_win_callback_check_generation(php_bacnet_cache *cache,
+													 php_bacnet_cache_partition partition) {
+	uint64_t now = php_bacnet_platform_wall_ms();
+	if (cache->l2 != PHP_BACNET_WIN_L2_CALLBACK || !cache->backend_active || cache->in_callback ||
+		now - cache->last_coherence_ms[partition] < cache->coherence_interval_ms)
+		return;
+	cache->last_coherence_ms[partition] = now;
+	zval args[2], retval;
+	ZVAL_STRING(&args[0], cache->namespace_name);
+	ZVAL_STRING(&args[1], php_bacnet_win_partition_name(partition));
+	ZVAL_UNDEF(&retval);
+	if (php_bacnet_win_callback_call(cache, "getGeneration", 2, args, &retval) &&
+		Z_TYPE(retval) == IS_LONG) {
+		uint64_t generation = Z_LVAL(retval);
+		if (cache->generations[partition] && cache->generations[partition] != generation) {
+			php_bacnet_win_clear_l1_partition(cache, partition);
+			cache->invalidations++;
+		}
+		cache->generations[partition] = generation;
+	}
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&retval);
 }
 
 static void php_bacnet_win_lmdb_prefix(php_bacnet_cache *cache,
@@ -385,6 +441,7 @@ php_bacnet_cache *php_bacnet_cache_create(const char *iface, uint16_t port) {
 	cache->l1_max_bytes = (size_t)BACNET_G(cache_l1_max_bytes);
 	cache->l2_max_bytes = (size_t)BACNET_G(cache_l2_max_bytes);
 	cache->lmdb_map_size = (size_t)BACNET_G(cache_lmdb_map_size);
+	cache->coherence_interval_ms = (uint32_t)BACNET_G(cache_coherence_interval_ms);
 	if (BACNET_G(cache_namespace) && *BACNET_G(cache_namespace))
 		snprintf(cache->namespace_name, sizeof(cache->namespace_name), "%s",
 				 BACNET_G(cache_namespace));
@@ -432,6 +489,7 @@ bool php_bacnet_cache_get(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 						  const char *key, uint8_t *data, uint32_t *length) {
 	if (!php_bacnet_cache_partition_enabled(cache, partition) || !key || !data || !length)
 		return false;
+	php_bacnet_win_callback_check_generation(cache, partition);
 	char lmdb_key[512];
 	php_bacnet_win_key(cache, partition, key, lmdb_key, sizeof(lmdb_key));
 	uint64_t now = php_bacnet_platform_wall_ms();
@@ -559,20 +617,14 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 		for (int i = 0; i < 6; i++)
 			zval_ptr_dtor(&args[i]);
 		zval_ptr_dtor(&retval);
+		php_bacnet_win_callback_bump_generation(cache, partition);
 	}
 }
 
 void php_bacnet_cache_clear(php_bacnet_cache *cache, int partition) {
 	if (!cache)
 		return;
-	if (cache->shared && php_bacnet_win_lock(cache)) {
-		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
-			if (cache->shared->entries[i].used &&
-				(partition < 0 ||
-				 cache->shared->entries[i].partition == (php_bacnet_cache_partition)partition))
-				cache->shared->entries[i].used = false;
-		php_bacnet_win_unlock(cache);
-	}
+	php_bacnet_win_clear_l1_partition(cache, partition);
 	if (cache->env) {
 		char prefix[128];
 		if (partition < 0)
@@ -594,6 +646,10 @@ void php_bacnet_cache_clear(php_bacnet_cache *cache, int partition) {
 		zval_ptr_dtor(&args[0]);
 		zval_ptr_dtor(&args[1]);
 		zval_ptr_dtor(&retval);
+		int first = partition < 0 ? 0 : partition;
+		int last = partition < 0 ? PHP_BACNET_CACHE_PARTITION_COUNT - 1 : partition;
+		for (int current = first; current <= last; current++)
+			php_bacnet_win_callback_bump_generation(cache, current);
 	}
 	cache->invalidations++;
 }
@@ -632,6 +688,7 @@ void php_bacnet_cache_invalidate(php_bacnet_cache *cache, php_bacnet_cache_parti
 		zval_ptr_dtor(&args[1]);
 		zval_ptr_dtor(&args[2]);
 		zval_ptr_dtor(&retval);
+		php_bacnet_win_callback_bump_generation(cache, partition);
 	}
 	cache->invalidations++;
 }
@@ -683,6 +740,9 @@ bool php_bacnet_cache_set_options(php_bacnet_cache *cache, HashTable *options,
 				 Z_LVAL_P(value) >= 1048576) {
 			cache->lmdb_map_size = (size_t)Z_LVAL_P(value);
 			reopen_lmdb = true;
+		} else if (!strcmp(name, "coherence_interval_ms") && Z_TYPE_P(value) == IS_LONG &&
+				   Z_LVAL_P(value) >= 0) {
+			cache->coherence_interval_ms = (uint32_t)Z_LVAL_P(value);
 		} else if (!strcmp(name, "l2_backend") && Z_TYPE_P(value) == IS_STRING) {
 			const char *backend = Z_STRVAL_P(value);
 			if (!strcmp(backend, "lmdb"))
@@ -775,6 +835,7 @@ void php_bacnet_cache_get_options(php_bacnet_cache *cache, zval *return_value) {
 	add_assoc_long(return_value, "l1_max_bytes", (zend_long)cache->l1_max_bytes);
 	add_assoc_long(return_value, "l2_max_bytes", (zend_long)cache->l2_max_bytes);
 	add_assoc_long(return_value, "lmdb_map_size", (zend_long)cache->lmdb_map_size);
+	add_assoc_long(return_value, "coherence_interval_ms", cache->coherence_interval_ms);
 	for (int partition = 0; partition < PHP_BACNET_CACHE_PARTITION_COUNT; partition++) {
 		char key[64];
 		snprintf(key, sizeof(key), "%s_enabled", php_bacnet_win_partition_name(partition));

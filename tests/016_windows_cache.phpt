@@ -30,10 +30,12 @@ $client->setCacheOptions([
     'state_enabled' => true,
     'state_ttl' => 2.5,
     'state_max_entries' => 3,
+    'coherence_interval_ms' => 0,
 ]);
 $options = $client->getCacheOptions();
 var_dump($options['state_enabled'], $options['state_ttl']);
 var_dump($options['state_max_entries']);
+var_dump($options['coherence_interval_ms']);
 echo $options['l2_backend'], PHP_EOL;
 var_dump($client->getCacheStats()['l2_available']);
 $client->setCacheOptions(['l2_backend' => 'none']);
@@ -54,6 +56,7 @@ bool(false)
 bool(true)
 float(2.5)
 int(3)
+int(0)
 lmdb
 bool(true)
 none

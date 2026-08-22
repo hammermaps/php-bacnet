@@ -26,6 +26,11 @@ Instanzcache und öffnet sie mit der neuen Konfiguration erneut.
 `setCacheBackend()` ist unter Windows NTS ebenfalls verfügbar und ersetzt LMDB
 instanzweise durch ein `Bacnet\CacheBackendInterface`.
 
+Bei einem PHP-Backend prüft der L1 vor dem Lesen die externe Partitiongeneration
+im Intervall `bacnet.cache_coherence_interval_ms`. Ein geänderter Wert leert nur
+die betroffene L1-Partition und verhindert damit Worker-übergreifend veraltete
+Treffer.
+
 ## Installation
 
 LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte
