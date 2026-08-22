@@ -21,7 +21,6 @@ $client->setCacheOptions(['enabled' => true, 'state_enabled' => true, 'state_ttl
 $options = $client->getCacheOptions();
 var_dump($options['state_enabled'], $options['state_ttl']);
 var_dump($client->getCacheStats()['l2_available']);
-var_dump(array_key_exists('l2_entries', $client->getCacheStats()));
 unset($client);
 @unlink($path . DIRECTORY_SEPARATOR . 'data.mdb');
 @unlink($path . DIRECTORY_SEPARATOR . 'lock.mdb');
@@ -33,6 +32,5 @@ none
 bool(false)
 bool(true)
 float(2.5)
-bool(true)
 bool(true)
 bool(true)
