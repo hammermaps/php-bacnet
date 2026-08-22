@@ -18,7 +18,7 @@ php_bacnet_expect(is_subclass_of(Bacnet\MixedServer::class, Bacnet\Server::class
 foreach (['setSecurityOptions', 'getSecurityOptions', 'getSecurityStats'] as $method) {
     php_bacnet_expect(method_exists(Bacnet\MixedServer::class, $method));
 }
-$server = new Bacnet\Server(4_193_901, '0.0.0.0', random_int(49000, 59000));
+$server = new Bacnet\Server(4_193_901, '0.0.0.0', 47821);
 $options = $server->getSecurityOptions();
 php_bacnet_expect($options['per_source_rate'] === 17.5);
 php_bacnet_expect($options['write_burst'] === 7);

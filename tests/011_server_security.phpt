@@ -18,7 +18,7 @@ try {
     echo "uninitialized guard: OK\n";
 }
 
-$port = random_int(49000, 59000);
+$port = 47820;
 $server = new Bacnet\Server(4_193_900, '0.0.0.0', $port);
 $defaults = $server->getSecurityOptions();
 php_bacnet_expect($defaults['enabled'] === true);
