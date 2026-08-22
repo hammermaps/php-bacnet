@@ -1,8 +1,17 @@
-# php-bacnet — BACnet/IP Extension for PHP 8.4+
+# php-bacnet v0.2.x — Linux- und Windows-NTS-Wartungszweig
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
 [![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
+
+> **Zweigumfang:** `v0.2.x` ist die Wartungslinie für PHP 8.4 und 8.5 unter
+> Linux und Windows als NTS-Build. Sie enthält Client, Server, MixedServer,
+> COV-Subscriptions und den zweistufigen Cache mit Shared Memory als L1 sowie
+> gebündeltem LMDB als L2. PIE-Releases heißen `v0.2.Z`.
+>
+> **Nicht Bestandteil dieses Zweigs:** ZTS-Builds, TSRM-Synchronisation und
+> ZTS-Artefakte. Diese Funktionen gehören erst zu `v0.3.x`. Linux- und
+> Windows-NTS sind dagegen gleichwertig unterstützt.
 
 <p align="center">
   <img src="assets/php-bacnet-logo.png" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
@@ -60,8 +69,9 @@ ermöglicht PHP-Anwendungen, als vollständige BACnet/IP-Knoten zu agieren:
 - **Geräteentdeckung** — `whoIs()` mit optionalem Instanzbereich
 - **COV-Subscriptions** — entfernte Properties beobachten und Änderungen per
   `onCovNotification()` im PHP-Event-Loop empfangen
-- **Mehrstufiger Client-Cache** — POSIX Shared Memory als fester L1, LMDB als
-  persistentes Standard-L2 und austauschbare PHP-Backends
+- **Mehrstufiger Client-Cache** — Shared Memory als L1 (POSIX unter Linux,
+  benanntes Shared Memory unter Windows), gebündeltes LMDB als persistentes
+  Standard-L2 und austauschbare PHP-Backends
 - **Server-Modus** — PHP-Callbacks für `onReadProperty` / `onWriteProperty`
 - **Server-Schutz** — ACLs, Token-Buckets, temporäre Quellsperren und Write-Deduplizierung
 - **Mixed-Modus** — Server und ausgehende Client-Anfragen über einen gemeinsamen UDP-Socket
