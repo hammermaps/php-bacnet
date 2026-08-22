@@ -1,7 +1,10 @@
 --TEST--
 Bacnet Client cache defaults, validation and callback backend
 --SKIPIF--
-<?php if (!extension_loaded('bacnet')) die('skip bacnet extension not loaded'); ?>
+<?php
+if (!extension_loaded('bacnet')) die('skip bacnet extension not loaded');
+if (PHP_OS_FAMILY === 'Windows') die('skip POSIX shared memory and LMDB are Unix-specific');
+?>
 --INI--
 bacnet.cache_enabled=0
 bacnet.cache_lmdb_path=/tmp/php-bacnet-phpt-cache
@@ -17,7 +20,8 @@ final class MemoryBackend implements Bacnet\CacheBackendInterface {
     public function bumpGeneration(string $namespace, string $partition): int { return 1; }
 }
 
-$client = new Bacnet\Client('lo', 47930, 10);
+$loopback = PHP_OS_FAMILY === 'Windows' ? '127.0.0.1' : 'lo';
+$client = new Bacnet\Client($loopback, 47930, 10);
 $options = $client->getCacheOptions();
 echo $options['l1_backend'], PHP_EOL;
 echo $options['l2_backend'], PHP_EOL;

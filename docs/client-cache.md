@@ -1,16 +1,66 @@
 # Client-Cache
 
 `Bacnet\Client` und die Client-Seite von `Bacnet\MixedServer` verwenden bei
-aktivierter Cache-Funktion immer einen in C implementierten POSIX-Shared-Memory-
-Cache als L1. Dadurch teilen sich PHP-FPM-Worker desselben Hosts die Einträge.
-Das standardmäßige L2 ist LMDB. Der reine `Bacnet\Server` und seine Callbacks
-werden nicht gecacht.
+aktivierter Cache-Funktion immer einen in C implementierten Shared-Memory-Cache
+als L1. Dadurch teilen sich PHP-FPM-Worker bzw. FastCGI-Prozesse desselben Hosts
+die Einträge. Das standardmäßige L2 ist LMDB. Der reine `Bacnet\Server` und
+seine Callbacks werden nicht gecacht.
+
+## Windows (NTS)
+
+Windows-NTS-Builds verwenden einen begrenzten L1-Cache (maximal 256 Einträge)
+in benanntem Shared Memory. Ein benannter Mutex schützt die Daten; damit
+teilen alle FastCGI-Prozesse desselben Windows-Hosts die Einträge. Das
+mitgelieferte LMDB stellt darüber ein persistentes L2 bereit. Das mit
+`bacnet.cache_lmdb_path` konfigurierte Verzeichnis muss bereits existieren und
+für den PHP-Prozess beschreibbar sein. `getCacheOptions()` meldet bei aktivem
+Cache `l1_backend=shared_memory` und `l2_backend=lmdb`. Bei deaktiviertem Cache
+bleibt die konfigurierte L2-Auswahl sichtbar, während `l2_available` in den
+Statistiken `false` meldet, solange LMDB nicht geöffnet ist.
+
+Die 256 L1-Slots werden zusätzlich durch die jeweiligen `*_max_entries` je
+Partition begrenzt. Erreicht eine Partition ihre Grenze, ersetzt sie ihren
+ältesten eigenen Eintrag und verdrängt keine andere Partition.
+
+`l1_max_bytes` wird ebenfalls durchgesetzt: Reicht der Platz nicht aus, weicht
+der global älteste L1-Eintrag. Einzelne Werte, die größer als die Grenze sind,
+überspringen L1 und bleiben für LMDB beziehungsweise ein PHP-L2 verfügbar.
+Auch wenn der Windows-L1 nicht geöffnet werden kann, bleiben LMDB und ein
+konfiguriertes PHP-L2 aktiv. L2-Treffer werden mit derselben Partitions- und
+LRU-Strategie wie reguläre Schreibvorgänge in L1 übernommen.
+
+Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
+`*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
+Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den
+Instanzcache und öffnet sie mit der neuen Konfiguration erneut.
+
+`shm_name` bestimmt unter Windows den Namen des Shared-Memory-Objekts (etwa
+`Local\\php_bacnet_building_a`); unter Unix bleibt es ein POSIX-Segmentname.
+
+`setCacheBackend()` ist unter Windows NTS ebenfalls verfügbar und ersetzt LMDB
+instanzweise durch ein `Bacnet\CacheBackendInterface`.
+
+Bei einem PHP-Backend prüft der L1 vor dem Lesen die externe Partitiongeneration
+im Intervall `bacnet.cache_coherence_interval_ms`. Ein geänderter Wert leert nur
+die betroffene L1-Partition und verhindert damit Worker-übergreifend veraltete
+Treffer.
+
+`getCacheStats()` liefert unter Windows dieselben Kernmetriken wie unter Unix,
+einschließlich `negative_hits`, `allocation_failures`, `l1_entries`, `l1_bytes`
+und `backend_errors`; mit `includeEntries: true` enthält es auf beiden Plattformen
+bis zu 128 L1-Einträge. Fehler eines PHP-Backends werden fail-open behandelt und
+höchstens einmal je `log_interval` als PHP-Warnung ausgegeben.
+
+Die Windows-PHPT-Suite deckt auch einen absichtlich fehlschlagenden Backend-
+Callback ab: Die Ausnahme erreicht den Aufrufer nicht, und `backend_errors`
+steigt an.
 
 ## Installation
 
-LMDB ist eine Build-Abhängigkeit. Unter Debian/Ubuntu wird `liblmdb-dev`
-benötigt. Das voreingestellte Verzeichnis `/var/cache/php-bacnet` muss vor dem
-Start angelegt und für den PHP-Prozess beschreibbar gemacht werden. Die
+LMDB wird aus der fest gepinnten Projektquelle mitgebaut. Das voreingestellte
+Verzeichnis `/var/cache/php-bacnet` muss vor dem Start angelegt und für den
+PHP-Prozess beschreibbar gemacht werden. Unter Windows ist ein entsprechender
+Pfad über `bacnet.cache_lmdb_path` zu setzen. Die
 Erweiterung legt es aus Sicherheitsgründen nicht selbst an. Ist es nicht
 verfügbar, bleibt L1 aktiv und eine aggregierte Warnung wird ausgegeben.
 
@@ -38,9 +88,9 @@ Deployments auf demselben Host sollte ein expliziter Namespace gesetzt werden.
 | `bacnet.cache_enabled` | `1` | Gesamten Client-Cache aktivieren |
 | `bacnet.cache_l2_backend` | `lmdb` | `lmdb` oder `"none"`; ein PHP-Adapter setzt intern `callback` |
 | `bacnet.cache_namespace` | leer | Automatisch `Interface:Port` |
-| `bacnet.cache_shm_name` | leer | Automatisch gehashter POSIX-Segmentname |
+| `bacnet.cache_shm_name` | leer | Automatisch gehashter Shared-Memory-Name |
 | `bacnet.cache_lmdb_path` | `/var/cache/php-bacnet` | Vorhandenes, beschreibbares LMDB-Verzeichnis |
-| `bacnet.cache_l1_max_bytes` | `16777216` | Logische L1-Speichergrenze |
+| `bacnet.cache_l1_max_bytes` | `16777216` | Durchgesetzte L1-Speichergrenze |
 | `bacnet.cache_l2_max_bytes` | `16777216` | Logische L2-Speichergrenze |
 | `bacnet.cache_lmdb_map_size` | `67108864` | LMDB-Map-Größe |
 | `bacnet.cache_coherence_interval_ms` | `1000` | Maximales Prüfintervall externer Generationen |
@@ -93,7 +143,10 @@ Die C-Schicht speichert die binären BACnet-Anwendungsdaten und erzeugt daraus
 bei jedem Treffer neue PHP-Werte. Requestgebundene `zval`-Zeiger gelangen weder
 in Shared Memory noch in LMDB. Einträge tragen Formatversion und Ablaufzeit;
 unpassende, beschädigte oder abgelaufene LMDB-Daten werden anhand von Länge,
-Formatkennung und Prüfsumme verworfen. `getCacheStats()` liefert
+Formatkennung und Prüfsumme verworfen. Nach jedem LMDB-Schreibvorgang entfernt
+ein Pruning abgelaufene Einträge und begrenzt sowohl die Partition als auch die
+L2-Größe. `clearCache()` löscht namespace- und partitionsweise; gezielte
+Invalidierungen löschen nur den betroffenen Schlüsselpräfix. `getCacheStats()` liefert
 unter anderem `hits`, `misses`, `stores`, `refreshes`, `expirations`,
 `evictions`, `invalidations`, `negative_hits`, `backend_errors` und die
 Verfügbarkeit beider Ebenen.

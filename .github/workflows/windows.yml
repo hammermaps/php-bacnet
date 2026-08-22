@@ -1,0 +1,33 @@
+name: Windows NTS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php }} NTS — Windows
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.4", "8.5"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build bundled bacnet-stack
+        shell: pwsh
+        run: ./scripts/build-windows-deps.ps1
+
+      - name: Build extension
+        uses: php/php-windows-builder/extension@v1
+        with:
+          php-version: ${{ matrix.php }}
+          arch: x64
+          ts: nts
+          args: --with-bacnet
+          build-directory: ${{ github.workspace }}
+          run-tests: true
