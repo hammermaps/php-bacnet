@@ -5,10 +5,11 @@
 #include "php.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_smart_str.h"
+#ifndef PHP_WIN32
 #include <arpa/inet.h>
+#endif
 #include <math.h>
 #include <string.h>
-#include <time.h>
 
 #ifndef BACDL_BIP
 #define BACDL_BIP
@@ -19,6 +20,7 @@
 
 #include "../php_bacnet.h"
 #include "bacnet_security.h"
+#include "bacnet_platform.h"
 
 #define SECURITY_MAX_CIDRS PHP_BACNET_SECURITY_MAX_CIDRS
 #define SECURITY_DUPLICATES PHP_BACNET_SECURITY_DUPLICATE_CAPACITY
@@ -68,9 +70,7 @@ struct php_bacnet_security {
 };
 
 static double php_bacnet_security_now(void) {
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+	return (double)php_bacnet_platform_monotonic_ms() / 1000.0;
 }
 
 static uint32_t php_bacnet_security_source_ip(const BACNET_ADDRESS *source) {

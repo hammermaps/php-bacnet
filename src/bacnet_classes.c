@@ -3,7 +3,6 @@
 #endif
 
 #include <string.h>
-#include <unistd.h>
 #include "php.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"

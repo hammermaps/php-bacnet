@@ -20,9 +20,6 @@
         "priority": 20,
         "support-nts": true,
         "support-zts": false,
-        "os-families-exclude": [
-            "windows"
-        ],
         "download-url-method": [
             "pre-packaged-source"
         ]

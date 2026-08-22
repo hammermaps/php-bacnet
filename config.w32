@@ -1,0 +1,18 @@
+// Windows NTS build configuration for php-bacnet.
+// The GitHub Windows workflow builds deps/bacnet-stack/build-windows/Release/bacnet-stack.lib
+// before invoking the PHP extension build.
+ARG_WITH("bacnet", "BACnet/IP support", "no");
+
+if (PHP_BACNET != "no") {
+    var bacnet_root = configure_module_dirname + "\\deps\\bacnet-stack";
+    var bacnet_build = bacnet_root + "\\build-windows\\Release";
+
+    if (!FSO.FileExists(bacnet_build + "\\bacnet-stack.lib")) {
+        ERROR("bacnet-stack.lib missing; run scripts/build-windows-deps.ps1 first.");
+    }
+
+    ADD_FLAG("CFLAGS_BACNET", "/DBACDL_BIP /DBACNET_STACK_DEPRECATED_DISABLE /I \"" + bacnet_root + "\\src\" /I \"" + bacnet_root + "\\ports\\win32\"");
+    ADD_FLAG("LDFLAGS_BACNET", "/LIBPATH:\"" + bacnet_build + "\" bacnet-stack.lib ws2_32.lib");
+    ADD_SOURCES(configure_module_dirname, "bacnet.c src\\bacnet_client.c src\\bacnet_classes.c src\\bacnet_types.c src\\bacnet_helpers.c src\\bacnet_cache_win32.c src\\bacnet_security.c", "bacnet");
+    ADD_EXTENSION("bacnet", "shared");
+}

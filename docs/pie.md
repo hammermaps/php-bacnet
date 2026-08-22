@@ -1,12 +1,11 @@
 # Installation mit PIE
 
-`php-bacnet` wird für Linux und macOS als PIE-Quellpaket bereitgestellt.
-Windows wird nicht unterstützt, da dafür vorkompilierte DLL-Artefakte notwendig
-wären.
+`php-bacnet` wird für Linux und macOS als PIE-Quellpaket bereitgestellt. Für
+Windows stehen vorkompilierte NTS-DLL-Artefakte aus den GitHub-Releases bereit.
 
 ## Voraussetzungen
 
-- PHP 8.4 oder neuer inklusive passendem `phpize` und `php-config`
+- PHP 8.4 oder neuer inklusive passendem `phpize` und `php-config` (Linux/macOS)
 - C-Compiler, `make` und CMake
 - LMDB-Entwicklungspaket (z. B. `liblmdb-dev` auf Debian/Ubuntu)
 
@@ -33,6 +32,9 @@ pie install hammermaps/php-bacnet \
 
 Die Extension heißt `bacnet`; PIE aktiviert sie nach erfolgreicher Installation
 für die gewählte PHP-Installation.
+
+Unter Windows installiert PIE ausschließlich die passende vorkompilierte
+NTS-DLL. ZTS wird nicht unterstützt.
 
 ## Release-Artefakt
 

@@ -7,9 +7,9 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
+#ifndef PHP_WIN32
 #include <arpa/inet.h>
-#include <sys/time.h>
+#endif
 
 #ifndef BACDL_BIP
 #define BACDL_BIP
@@ -27,12 +27,11 @@
 #include "../php_bacnet.h"
 #include "bacnet_client.h"
 #include "bacnet_cache.h"
+#include "bacnet_platform.h"
 
 /* Milliseconds since epoch, monotonic */
 static uint64_t php_bacnet_ms_now(void) {
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+	return php_bacnet_platform_monotonic_ms();
 }
 
 static int php_bacnet_send_standard_broadcast(const uint8_t *npdu, uint16_t npdu_len) {

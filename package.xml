@@ -45,6 +45,7 @@
   <contents>
     <dir name="/">
       <file name="config.m4"        role="src"/>
+      <file name="config.w32"       role="src"/>
       <file name="bacnet.c"         role="src"/>
       <file name="php_bacnet.h"     role="src"/>
       <file name="README.md"        role="doc"/>
@@ -79,6 +80,8 @@
         <file name="bacnet_helpers.h"  role="src"/>
         <file name="bacnet_cache.c"     role="src"/>
         <file name="bacnet_cache.h"     role="src"/>
+        <file name="bacnet_cache_win32.c" role="src"/>
+        <file name="bacnet_platform.h"  role="src"/>
         <file name="bacnet_security.c" role="src"/>
         <file name="bacnet_security.h" role="src"/>
         <file name="bacnet_types.h"    role="src"/>
@@ -110,6 +113,7 @@
       <dir name="scripts">
         <file name="build-deps.sh" role="src"/>
         <file name="package-pie-source.sh" role="src"/>
+        <file name="build-windows-deps.ps1" role="src"/>
       </dir>
     </dir>
   </contents>
