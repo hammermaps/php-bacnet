@@ -609,14 +609,17 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	uint64_t partition_oldest = UINT64_MAX;
 	uint64_t global_oldest = UINT64_MAX;
 	uint32_t partition_entries = 0;
+	size_t used_bytes = 0;
 	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
 		php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
-		if (entry->used && entry->partition == partition)
-			partition_entries++;
+		if (entry->used) {
+			used_bytes += entry->length;
+			if (entry->partition == partition)
+				partition_entries++;
+		}
 		if (entry->used && entry->partition == partition && !strcmp(entry->key, key)) {
 			target = entry;
 			found = true;
-			break;
 		}
 		if (!target && !entry->used)
 			target = entry;
@@ -641,6 +644,28 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 		}
 		cache->evictions++;
 	}
+	if (length > cache->l1_max_bytes) {
+		cache->allocation_failures++;
+		php_bacnet_win_unlock(cache);
+		goto write_l2;
+	}
+	size_t projected_bytes = used_bytes - (target->used ? target->length : 0) + length;
+	while (projected_bytes > cache->l1_max_bytes) {
+		php_bacnet_win_cache_entry *victim = NULL;
+		for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
+			php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+			if (entry != target && entry->used && (!victim || entry->touched < victim->touched))
+				victim = entry;
+		}
+		if (!victim) {
+			cache->allocation_failures++;
+			php_bacnet_win_unlock(cache);
+			goto write_l2;
+		}
+		projected_bytes -= victim->length;
+		victim->used = false;
+		cache->evictions++;
+	}
 	target->used = true;
 	target->partition = partition;
 	target->length = length;
@@ -651,6 +676,8 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	memcpy(target->value, data, length);
 	cache->stores++;
 	php_bacnet_win_unlock(cache);
+
+write_l2:
 	if (cache->l2 == PHP_BACNET_WIN_L2_LMDB) {
 		php_bacnet_win_lmdb_put(cache, lmdb_key, data, length, expiry);
 		php_bacnet_win_lmdb_prune(cache, partition);

@@ -22,6 +22,10 @@ Die 256 L1-Slots werden zusätzlich durch die jeweiligen `*_max_entries` je
 Partition begrenzt. Erreicht eine Partition ihre Grenze, ersetzt sie ihren
 ältesten eigenen Eintrag und verdrängt keine andere Partition.
 
+`l1_max_bytes` wird ebenfalls durchgesetzt: Reicht der Platz nicht aus, weicht
+der global älteste L1-Eintrag. Einzelne Werte, die größer als die Grenze sind,
+überspringen L1 und bleiben für LMDB beziehungsweise ein PHP-L2 verfügbar.
+
 Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 `*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
 Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den
