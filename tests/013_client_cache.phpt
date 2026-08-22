@@ -1,7 +1,10 @@
 --TEST--
 Bacnet Client cache defaults, validation and callback backend
 --SKIPIF--
-<?php if (!extension_loaded('bacnet')) die('skip bacnet extension not loaded'); ?>
+<?php
+if (!extension_loaded('bacnet')) die('skip bacnet extension not loaded');
+if (PHP_OS_FAMILY === 'Windows') die('skip POSIX shared memory and LMDB are Unix-specific');
+?>
 --INI--
 bacnet.cache_enabled=0
 bacnet.cache_lmdb_path=/tmp/php-bacnet-phpt-cache

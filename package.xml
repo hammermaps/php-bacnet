@@ -88,6 +88,7 @@
       </dir>
       <dir name="tests">
         <file name="013_client_cache.phpt" role="test"/>
+        <file name="016_windows_cache.phpt" role="test"/>
         <file name="001_client_construct.phpt"   role="test"/>
         <file name="002_whois_no_network.phpt"   role="test"/>
         <file name="003_exceptions.phpt"          role="test"/>

@@ -136,6 +136,9 @@ Ein beliebiges `Bacnet\CacheBackendInterface` kann LMDB pro Instanz ersetzen,
 beispielsweise für Redis oder Memcached. Siehe
 [Client-Cache](docs/client-cache.md).
 
+Unter Windows NTS steht ein begrenzter prozesslokaler Cache zur Verfügung; LMDB,
+Shared Memory und eigene Cache-Backends sind Unix-Funktionen.
+
 ---
 
 ## Mixed-Modus

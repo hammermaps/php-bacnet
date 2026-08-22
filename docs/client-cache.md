@@ -6,6 +6,15 @@ Cache als L1. Dadurch teilen sich PHP-FPM-Worker desselben Hosts die Einträge.
 Das standardmäßige L2 ist LMDB. Der reine `Bacnet\Server` und seine Callbacks
 werden nicht gecacht.
 
+## Windows (NTS)
+
+Windows-NTS-Builds verwenden stattdessen einen begrenzten, prozesslokalen
+L1-Cache (maximal 256 Einträge). LMDB, prozessübergreifende Kohärenz und
+`Bacnet\CacheBackendInterface` stehen dort nicht zur Verfügung.
+`getCacheOptions()` meldet dafür `l1_backend=process_memory` und
+`l2_backend=none`. Die POSIX-/LMDB-spezifischen Direktiven werden auf
+Windows nicht ausgewertet.
+
 ## Installation
 
 LMDB ist eine Build-Abhängigkeit. Unter Debian/Ubuntu wird `liblmdb-dev`
