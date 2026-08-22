@@ -30,4 +30,4 @@ jobs:
           ts: nts
           args: --with-bacnet
           build-directory: ${{ github.workspace }}
-          run-tests: false
+          run-tests: true
