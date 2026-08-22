@@ -1,8 +1,17 @@
-# php-bacnet — BACnet/IP Extension for PHP 8.4+
+# php-bacnet v0.1.x — Linux-NTS-Wartungszweig
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
 [![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
+
+> **Zweigumfang:** `v0.1.x` ist die stabile Linux-Wartungslinie für PHP 8.4
+> und 8.5 als NTS-Build. Sie enthält Client, Server, MixedServer,
+> COV-Subscriptions sowie den POSIX-Shared-Memory-/LMDB-Cache. PIE-Releases
+> heißen `v0.1.Z`.
+>
+> **Nicht Bestandteil dieses Zweigs:** Windows-DLLs oder Windows-NTS-Support,
+> ZTS-Builds und ZTS-Synchronisation. Windows NTS beginnt mit `v0.2.x`; Linux
+> und Windows mit ZTS sind erst für `v0.3.x` vorgesehen.
 
 <p align="center">
   <img src="assets/php-bacnet-logo.png" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
