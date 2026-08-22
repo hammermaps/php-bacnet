@@ -1,0 +1,35 @@
+name: PIE source package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Publish PIE source archive
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          submodules: recursive
+
+      - name: Create PIE source archive
+        env:
+          PIE_DIST_DIR: ${{ runner.temp }}/pie-dist
+        run: |
+          bash ./scripts/package-pie-source.sh "${{ github.event.release.tag_name }}"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          version="${version#v}"
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "$RUNNER_TEMP/pie-dist/php_bacnet-${version}-src.tgz" \
+            --clobber

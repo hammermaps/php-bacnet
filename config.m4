@@ -17,8 +17,25 @@ if test "$PHP_BACNET" != "no"; then
   BACNET_BUILD_DIR="$srcdir/deps/bacnet-stack/build"
   BACNET_SRC_DIR="$BACNET_DIR/src"
 
+  if test ! -f "$BACNET_DIR/CMakeLists.txt"; then
+    AC_MSG_ERROR([bacnet-stack source not found. Install from a PIE source package or initialize submodules.])
+  fi
+
   if test ! -f "$BACNET_BUILD_DIR/libbacnet-stack.a"; then
-    AC_MSG_ERROR([libbacnet-stack.a not found. Run: ./scripts/build-deps.sh])
+    AC_PATH_PROG([CMAKE], [cmake], [no])
+    if test "$CMAKE" = "no"; then
+      AC_MSG_ERROR([cmake is required to build the bundled bacnet-stack.])
+    fi
+    AC_MSG_NOTICE([building bundled bacnet-stack static library])
+    mkdir -p "$BACNET_BUILD_DIR" || AC_MSG_ERROR([cannot create bacnet-stack build directory])
+    "$CMAKE" -S "$BACNET_DIR" -B "$BACNET_BUILD_DIR" \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DBACNET_STACK_BUILD_APPS=OFF \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTING=OFF \
+      -DBACNET_STACK_BUILD_TESTS=OFF \
+      -DCMAKE_C_FLAGS=-fPIC || AC_MSG_ERROR([failed to configure bundled bacnet-stack])
+    "$CMAKE" --build "$BACNET_BUILD_DIR" --parallel || AC_MSG_ERROR([failed to build bundled bacnet-stack])
   fi
 
   PHP_ADD_INCLUDE($BACNET_SRC_DIR)

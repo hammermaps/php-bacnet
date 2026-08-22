@@ -1,0 +1,30 @@
+{
+    "name": "hammermaps/php-bacnet",
+    "description": "BACnet/IP extension for PHP",
+    "type": "php-ext",
+    "license": "BSD-3-Clause",
+    "keywords": [
+        "php-extension",
+        "bacnet",
+        "building-automation"
+    ],
+    "require": {
+        "php": ">=8.4"
+    },
+    "support": {
+        "issues": "https://github.com/hammermaps/php-bacnet/issues",
+        "source": "https://github.com/hammermaps/php-bacnet"
+    },
+    "php-ext": {
+        "extension-name": "bacnet",
+        "priority": 20,
+        "support-nts": true,
+        "support-zts": false,
+        "os-families-exclude": [
+            "windows"
+        ],
+        "download-url-method": [
+            "pre-packaged-source"
+        ]
+    }
+}

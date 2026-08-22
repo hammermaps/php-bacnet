@@ -1,6 +1,6 @@
 # php-bacnet — API-Referenz
 
-> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.1.0  
+> Vollständige Dokumentation der `bacnet`-PHP-Erweiterung — Version 0.1.3
 > Stil: [php.net](https://www.php.net/manual/de/) Referenzhandbuch
 
 ---
@@ -61,7 +61,7 @@ und stellt eine typsichere, objektorientierte API im Namensraum `Bacnet\` bereit
 | WeeklySchedule | WEEKLY_SCHEDULE lesen (Dekodierung) |
 | TrendLog | LOG_BUFFER als `TrendLogRecord[]` lesen |
 
-**Einschränkungen in v0.1.1:**
+**Einschränkungen in v0.1.3:**
 
 - Genau ein `Client` oder `Server` pro PHP-Prozess (prozess-globaler UDP-Socket).
 - `whoIs()` sammelt maximal 64 Geräte pro Aufruf.
