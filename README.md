@@ -1,17 +1,19 @@
-# php-bacnet v0.2.x — Linux- und Windows-NTS-Wartungszweig
+# php-bacnet v0.3.x — ZTS-Integrationszweig für Linux und Windows
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.4%2B%20NTS-blue)](#anforderungen)
 [![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
-> **Zweigumfang:** `v0.2.x` ist die Wartungslinie für PHP 8.4 und 8.5 unter
-> Linux und Windows als NTS-Build. Sie enthält Client, Server, MixedServer,
-> COV-Subscriptions und den zweistufigen Cache mit Shared Memory als L1 sowie
-> gebündeltem LMDB als L2. PIE-Releases heißen `v0.2.Z`.
+> **Zweigumfang:** `v0.3.x` ist die künftige Wartungslinie für PHP 8.4 und 8.5
+> unter Linux und Windows mit NTS- und ZTS-Artefakten. Sie erbt Client, Server,
+> MixedServer, COV-Subscriptions und den zweistufigen Shared-Memory-/LMDB-Cache
+> aus `v0.2.x`. PIE-Releases heißen `v0.3.Z`.
 >
-> **Nicht Bestandteil dieses Zweigs:** ZTS-Builds, TSRM-Synchronisation und
-> ZTS-Artefakte. Diese Funktionen gehören erst zu `v0.3.x`. Linux- und
-> Windows-NTS sind dagegen gleichwertig unterstützt.
+> **Aktueller Stand:** Der Branch ist vorbereitet, aber noch nicht veröffentlicht.
+> Die vorhandene Implementierung ist weiterhin NTS. ZTS-Builds,
+> TSRM-Synchronisation und eine ZTS-Testmatrix werden erst nach ihrer
+> vollständigen Implementierung als unterstützt ausgewiesen. Bis dahin dürfen
+> keine `v0.3.Z`-PIE-Releases erzeugt werden.
 
 <p align="center">
   <img src="assets/php-bacnet-logo.png" alt="PHP-Elefant und BACnet-Netzwerk" width="720">

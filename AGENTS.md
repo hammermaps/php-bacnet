@@ -15,6 +15,10 @@ gelten nicht für dieses Repository.
 | `v0.2.x` | Linux, Windows | NTS | `v0.2.Z` |
 | `v0.3.x` | Linux, Windows | NTS und ZTS | `v0.3.Z` |
 
+Der Zweig `v0.3.x` bleibt bis zur grünen ZTS-Matrix ein unveröffentlichter
+Integrationszweig. Seine README muss den tatsächlichen ZTS-Stand nennen; ein
+Zielzustand allein ist keine Unterstützung und autorisiert keinen Release.
+
 `main` ist der Integrationszweig für die nächste aktive Entwicklungslinie.
 Vor einem Wartungsrelease wird der geprüfte Stand in den passenden
 `v0.Major.x`-Zweig übernommen. Existiert der nächste Wartungszweig noch nicht,
