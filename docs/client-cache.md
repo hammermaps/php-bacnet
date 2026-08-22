@@ -18,6 +18,10 @@ Cache `l1_backend=shared_memory` und `l2_backend=lmdb`. Bei deaktiviertem Cache
 bleibt die konfigurierte L2-Auswahl sichtbar, während `l2_available` in den
 Statistiken `false` meldet, solange LMDB nicht geöffnet ist.
 
+Die 256 L1-Slots werden zusätzlich durch die jeweiligen `*_max_entries` je
+Partition begrenzt. Erreicht eine Partition ihre Grenze, ersetzt sie ihren
+ältesten eigenen Eintrag und verdrängt keine andere Partition.
+
 Die PHP-Laufzeitoptionen für Namespace, LMDB-Pfad, Map-Größe, L2-Größe und
 `*_max_entries` sind auch unter Windows NTS verfügbar. Eine Änderung von
 Namespace, LMDB-Pfad oder Map-Größe schließt die betroffene Ebene, leert den

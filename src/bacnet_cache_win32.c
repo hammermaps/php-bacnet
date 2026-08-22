@@ -577,20 +577,42 @@ void php_bacnet_cache_put(php_bacnet_cache *cache, php_bacnet_cache_partition pa
 	if (!cache->shared || !php_bacnet_win_lock(cache))
 		return;
 	php_bacnet_win_cache_entry *target = NULL;
+	php_bacnet_win_cache_entry *partition_lru = NULL;
+	php_bacnet_win_cache_entry *global_lru = NULL;
+	bool found = false;
+	uint64_t partition_oldest = UINT64_MAX;
+	uint64_t global_oldest = UINT64_MAX;
+	uint32_t partition_entries = 0;
 	for (uint32_t i = 0; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++) {
-		if (cache->shared->entries[i].used && cache->shared->entries[i].partition == partition &&
-			!strcmp(cache->shared->entries[i].key, key)) {
-			target = &cache->shared->entries[i];
+		php_bacnet_win_cache_entry *entry = &cache->shared->entries[i];
+		if (entry->used && entry->partition == partition)
+			partition_entries++;
+		if (entry->used && entry->partition == partition && !strcmp(entry->key, key)) {
+			target = entry;
+			found = true;
 			break;
 		}
-		if (!target && !cache->shared->entries[i].used)
-			target = &cache->shared->entries[i];
+		if (!target && !entry->used)
+			target = entry;
+		if (entry->used && entry->partition == partition && entry->touched < partition_oldest) {
+			partition_oldest = entry->touched;
+			partition_lru = entry;
+		}
+		if (entry->used && entry->touched < global_oldest) {
+			global_oldest = entry->touched;
+			global_lru = entry;
+		}
 	}
-	if (!target) {
-		target = &cache->shared->entries[0];
-		for (uint32_t i = 1; i < PHP_BACNET_WIN_CACHE_ENTRIES; i++)
-			if (cache->shared->entries[i].touched < target->touched)
-				target = &cache->shared->entries[i];
+	if (!found && (partition_entries >= cache->max_entries[partition] || !target)) {
+		if (partition_entries >= cache->max_entries[partition])
+			target = partition_lru;
+		else if (!target)
+			target = global_lru;
+		if (!target) {
+			cache->invalidations++;
+			php_bacnet_win_unlock(cache);
+			return;
+		}
 		cache->evictions++;
 	}
 	target->used = true;
