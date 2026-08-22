@@ -4,6 +4,10 @@
 [![bacnet-stack](https://img.shields.io/badge/bacnet--stack-1.5.1-green)](#)
 [![License](https://img.shields.io/badge/License-BSD--3-blue)](./LICENSE)
 
+<p align="center">
+  <img src="assets/php-bacnet-logo.jpg" alt="PHP-Elefant und BACnet-Netzwerk" width="720">
+</p>
+
 **php-bacnet** ist eine native C-Erweiterung für PHP 8.4 und 8.5, die vollständige
 BACnet/IP-Kommunikation bereitstellt. Sie kapselt die
 [bacnet-stack](https://github.com/bacnet-stack/bacnet-stack)-Bibliothek und stellt eine
