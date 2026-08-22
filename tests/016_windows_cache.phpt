@@ -14,11 +14,16 @@ $options = $client->getCacheOptions();
 echo $options['l1_backend'], PHP_EOL;
 echo $options['l2_backend'], PHP_EOL;
 var_dump($options['enabled']);
+$client->setCacheOptions(['enabled' => true, 'state_enabled' => true, 'state_ttl' => 2.5]);
+$options = $client->getCacheOptions();
+var_dump($options['state_enabled'], $options['state_ttl']);
 var_dump(array_key_exists('hits', $client->getCacheStats()));
 unset($client);
 ?>
 --EXPECT--
-process_memory
+shared_memory
 none
 bool(false)
+bool(true)
+float(2.5)
 bool(true)

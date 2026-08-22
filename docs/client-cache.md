@@ -8,12 +8,13 @@ werden nicht gecacht.
 
 ## Windows (NTS)
 
-Windows-NTS-Builds verwenden stattdessen einen begrenzten, prozesslokalen
-L1-Cache (maximal 256 Einträge). LMDB, prozessübergreifende Kohärenz und
-`Bacnet\CacheBackendInterface` stehen dort nicht zur Verfügung.
-`getCacheOptions()` meldet dafür `l1_backend=process_memory` und
-`l2_backend=none`. Die POSIX-/LMDB-spezifischen Direktiven werden auf
-Windows nicht ausgewertet.
+Windows-NTS-Builds verwenden einen begrenzten L1-Cache (maximal 256 Einträge)
+in benanntem Shared Memory. Ein benannter Mutex schützt die Daten; damit
+teilen alle FastCGI-Prozesse desselben Windows-Hosts die Einträge. LMDB und
+ein persistentes L2 stehen dort noch nicht zur Verfügung. `getCacheOptions()`
+meldet daher `l1_backend=shared_memory` und `l2_backend=none`. Die
+PHP-Optionen `enabled`, `*_enabled` und `*_ttl` sind unter Windows
+ebenso wirksam wie unter Unix.
 
 ## Installation
 
