@@ -59,10 +59,16 @@ bestätigen:
 - `v0.3.x`: Linux und Windows jeweils NTS und ZTS mit den unterstützten
   PHP-Versionen.
 
-Ein GitHub-Release wird erst nach grüner Matrix erzeugt. Der Tag zeigt auf den
-entsprechenden Wartungszweig, die Release-Notizen sind auf Deutsch und enthalten
-echte Markdown-Zeilenumbrüche. Anschließend ist das PIE-Quellartefakt zu
-prüfen; seine Versionsnummer muss dem Tag ohne führendes `v` entsprechen.
+Bei einem Publish wird jeder unterstützte Wartungszweig getrennt geprüft. Ein
+GitHub- und PIE-Release wird für einen Zweig nur erzeugt, wenn seit seinem
+letzten Release relevante, veröffentlichbare Änderungen vorliegen. Ohne solche
+Änderungen wird weder ein neuer Tag noch ein leerer Release erstellt.
+
+Ein erforderlicher GitHub-Release wird erst nach grüner Matrix erzeugt. Der Tag
+zeigt auf den entsprechenden Wartungszweig, die Release-Notizen sind auf Deutsch
+und enthalten echte Markdown-Zeilenumbrüche. Anschließend ist das
+PIE-Quellartefakt zu prüfen; seine Versionsnummer muss dem Tag ohne führendes
+`v` entsprechen.
 
 ## Arbeitsbaum und Sicherheit
 
